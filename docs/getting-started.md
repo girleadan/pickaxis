@@ -1,0 +1,161 @@
+# Getting started with pickaxis
+
+This walks you from zero to a working pickaxis install on your project, in about 5 minutes.
+
+## What pickaxis does (in one paragraph)
+
+Pickaxis sits next to your AI coding tool (Claude Code today) and turns each session into a learning surface. It assesses what you actually know across nine skill axes — DevOps, language, framework, codebase, business domain, database, testing, security, and AI literacy — then uses that profile to prime you before tickets, suggest files to read, propose stretch challenges, and answer "where in this repo does X live?" with verbosity scaled to your familiarity. It piggybacks on your existing AI tool — no API key, no extra LLM connection, no code sent to a remote service by pickaxis itself.
+
+## Prerequisites
+
+- **Node.js 20 or later** — check with `node --version`
+- **Claude Code** (or another MCP-compatible AI tool) installed
+- **A project you want pickaxis on** — any language, any framework
+
+## Install on a project
+
+Pick the path that matches where pickaxis is in its life cycle (today: GitHub-only).
+
+### Path A — From GitHub (current default)
+
+Pickaxis is not yet on npm. Install directly from this repo:
+
+```bash
+cd /path/to/your/project
+npx github:girleadan/pickaxis#main init
+```
+
+What that single command does:
+
+1. Clones pickaxis to a temp directory.
+2. Runs `npm install` — the `prepare` script builds `dist/` automatically.
+3. Executes `init`, which:
+   - Detects your stack (looks at `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`).
+   - Writes `pickaxis.yaml` at your project root (committed; shared with team).
+   - Registers the MCP server in `.claude/settings.json`.
+   - Drops the skill bundle at `.claude/skills/pickaxis/` — `SKILL.md` plus 5 slash commands.
+
+Pin to a specific tag or commit so a colleague doesn't get accidentally upgraded:
+
+```bash
+npx github:girleadan/pickaxis#v0.1.0 init   # once tags exist
+npx github:girleadan/pickaxis#<sha> init    # always works
+```
+
+### Path B — From a local clone (for hacking on pickaxis itself)
+
+```bash
+git clone https://github.com/girleadan/pickaxis.git
+cd pickaxis
+npm install           # the prepare hook builds dist/ for you
+npm link              # registers "pickaxis" globally
+cd /path/to/your/project
+npx pickaxis init
+```
+
+To pick up your local changes in another project later, just `npm run build` from the pickaxis repo — the link points at your source.
+
+### Path C — From npm (not yet available)
+
+When pickaxis ships on npm:
+
+```bash
+cd /path/to/your/project
+npx pickaxis init
+```
+
+## First run — take the assessment
+
+1. Open your project in Claude Code (after `init` finishes).
+2. Type `/px-assess`. Claude will ask the first question for your weakest skill axis.
+3. Answer honestly — partial credit is the common case, that's fine.
+4. Claude grades against the hidden rubric and your profile updates.
+5. Repeat for as many or as few axes as you like.
+
+## The five slash commands
+
+| Command                | When to use it                                                                 |
+| ---------------------- | ------------------------------------------------------------------------------ |
+| `/px-assess`           | Take or resume the socratic assessment.                                        |
+| `/px-profile`          | See your current skill profile and module familiarity.                         |
+| `/px-prime <ticket>`   | Before starting work on a ticket — get a primer of files, anti-patterns, and pre-AI questions you should be able to answer first. |
+| `/px-challenge`        | Get a stretch exercise on your weakest axis.                                   |
+| `/px-map <query>`      | "Where in this repo does X live?" — verbosity scales to your familiarity.      |
+
+## Where your data lives
+
+| Path                                                  | Purpose                              | Committed?   |
+| ----------------------------------------------------- | ------------------------------------ | ------------ |
+| `<repo>/pickaxis.yaml`                                | Team-wide config (packs, settings)   | **Yes**      |
+| `<repo>/.claude/settings.json`                        | MCP registration                     | Up to you    |
+| `<repo>/.claude/skills/pickaxis/`                     | Skill bundle (`SKILL.md` + commands) | Up to you    |
+| `~/.pickaxis/<repo-fingerprint>/profile.json`         | Your personal skill profile          | **Never**    |
+| `~/.pickaxis/<repo-fingerprint>/evidence.jsonl`       | Passive observation log              | **Never**    |
+
+Pickaxis has a hard **anti-surveillance** stance: your profile is for **you**, not your manager. See the project [README](../README.md) for the rationale.
+
+## Configuring `pickaxis.yaml`
+
+The default written by `init`:
+
+```yaml
+packs:
+  - polyglot
+assess:
+  reassessAfterDays: 30
+privacy:
+  sendPromptsToHostAi: true
+  logFileTouches: true
+tools: {}
+```
+
+- **`packs`** — which stack packs to load. `polyglot` is always available; add others like `shopware-php` for framework-specific assessments.
+- **`assess.reassessAfterDays`** — when a skill score is considered stale and should be re-tested. Not enforced in 0.1.0.
+- **`privacy.sendPromptsToHostAi`** — set to false to disable open-ended question grading via the host AI. Pickaxis still runs but with reduced functionality.
+- **`privacy.logFileTouches`** — set to false to disable the passive observation hooks.
+- **`tools`** — composition hook for other MCP servers (translation, Jira, etc.). Stubbed in 0.1.0.
+
+## Available packs
+
+- **`polyglot`** — generic assessments covering git, testing, SQL, HTTP, AI review discipline. Always loaded.
+- **`shopware-php`** — Shopware 6 plugin structure, Symfony DI, EventSubscribers, SalesChannelContext, migration timestamps.
+
+Want a pack for your framework? See [docs/pack-authoring.md](pack-authoring.md).
+
+## Uninstall
+
+From the project where pickaxis is installed:
+
+```bash
+rm -rf .claude/skills/pickaxis pickaxis.yaml
+# then manually remove the "pickaxis" entry under "mcpServers" in .claude/settings.json
+```
+
+If you used `npm link`:
+
+```bash
+cd /path/to/pickaxis
+npm unlink -g pickaxis
+```
+
+Remove your local profile (irreversible):
+
+```bash
+rm -rf ~/.pickaxis
+```
+
+## Troubleshooting
+
+**Slash commands don't appear in Claude Code.** Restart Claude Code so it re-scans `.claude/skills/`.
+
+**`/px-profile` errors out.** Check the `PICKAXIS_REPO_ROOT` env var in `.claude/settings.json`'s `mcpServers.pickaxis.env` — it must be the absolute path to your project root.
+
+**`npx pickaxis` says "command not found".** Either install via `npm link` (Path B) or use the explicit GitHub form (`npx github:girleadan/pickaxis#main init`). The bare `npx pickaxis` only works once the package is on npm.
+
+**`prepare` script fails during install.** Make sure your environment has Node 20+ and that `npm install` finished without errors before the prepare script ran.
+
+## Next reads
+
+- [`README.md`](../README.md) — the motivation and privacy stance
+- [`docs/pack-authoring.md`](pack-authoring.md) — how to write a stack pack for your framework
+- Issues: https://github.com/girleadan/pickaxis/issues

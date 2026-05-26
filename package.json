@@ -20,7 +20,8 @@
     "dev": "tsc --watch",
     "mcp": "node dist/mcp-server/index.js",
     "init": "node dist/init/cli.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

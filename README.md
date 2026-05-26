@@ -24,12 +24,16 @@ If your team tries to pipe profiles into a management dashboard, that is a fork,
 
 ## Install
 
+Pickaxis is not on npm yet — install directly from GitHub:
+
 ```bash
 cd your-project
-npx pickaxis init
+npx github:girleadan/pickaxis#main init
 ```
 
 Then in Claude Code, run `/px-assess` to take the initial 5–10 minute assessment.
+
+For local-clone installs, npm-link development setup, configuration, and troubleshooting, see **[docs/getting-started.md](docs/getting-started.md)**.
 
 ## Slash commands (in Claude Code)
 
