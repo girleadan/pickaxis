@@ -21,14 +21,61 @@ async function main() {
   await writeConfig(repoRoot, packs.map((p) => p.id));
   console.log("  wrote pickaxis.yaml");
 
-  await registerMcpServer(repoRoot);
-  console.log("  registered MCP server in .claude/settings.json");
+  const mcpSpec = await resolveMcpSpec();
+  await registerMcpServer(repoRoot, mcpSpec);
+  console.log(`  registered MCP server in .claude/settings.json (using "${mcpSpec}")`);
 
   await dropSkillBundle(repoRoot);
   console.log("  installed skill bundle to .claude/skills/pickaxis/");
 
   console.log("");
   console.log("Done. In Claude Code, run /px-assess to take the initial assessment.");
+}
+
+/**
+ * Decide what string to pass to `npx -y <SPEC> --mcp` so the MCP server can be launched later.
+ *
+ * Priority:
+ *   1. Explicit --ref <spec> flag from the command line.
+ *   2. Auto-detected from this package's own package.json `_from` field, which npm
+ *      sets when the package was installed from a non-registry source (git URL, tarball, local path).
+ *   3. Fallback to the bare package name (assumes a future npm publish).
+ */
+async function resolveMcpSpec(): Promise<string> {
+  const refFlag = getRefFromArgv();
+  if (refFlag) return refFlag;
+
+  try {
+    const ownPackageJson = JSON.parse(
+      await fs.readFile(join(PACKAGE_ROOT, "package.json"), "utf8"),
+    );
+    const from = ownPackageJson._from;
+    if (
+      typeof from === "string" &&
+      (from.startsWith("github:") ||
+        from.startsWith("gitlab:") ||
+        from.startsWith("bitbucket:") ||
+        from.startsWith("git+") ||
+        from.startsWith("git://") ||
+        from.endsWith(".git") ||
+        from.endsWith(".tgz"))
+    ) {
+      return from;
+    }
+  } catch {
+    // ignore — fall through to default
+  }
+
+  return "pickaxis";
+}
+
+function getRefFromArgv(): string | undefined {
+  const argv = process.argv;
+  const idx = argv.indexOf("--ref");
+  if (idx >= 0 && idx + 1 < argv.length) return argv[idx + 1];
+  const eqArg = argv.find((a) => a.startsWith("--ref="));
+  if (eqArg) return eqArg.slice("--ref=".length);
+  return undefined;
 }
 
 async function writeConfig(repoRoot: string, packIds: string[]): Promise<void> {
@@ -55,7 +102,7 @@ async function writeConfig(repoRoot: string, packIds: string[]): Promise<void> {
   );
 }
 
-async function registerMcpServer(repoRoot: string): Promise<void> {
+async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<void> {
   const settingsDir = join(repoRoot, ".claude");
   const settingsPath = join(settingsDir, "settings.json");
   await fs.mkdir(settingsDir, { recursive: true });
@@ -74,7 +121,7 @@ async function registerMcpServer(repoRoot: string): Promise<void> {
     (settings.mcpServers as Record<string, unknown> | undefined) ?? {};
   mcpServers.pickaxis = {
     command: "npx",
-    args: ["-y", "pickaxis", "--mcp"],
+    args: ["-y", mcpSpec, "--mcp"],
     env: { PICKAXIS_REPO_ROOT: repoRoot },
   };
   settings.mcpServers = mcpServers;

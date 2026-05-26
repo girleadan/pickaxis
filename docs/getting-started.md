@@ -32,7 +32,7 @@ What that single command does:
 3. Executes `init`, which:
    - Detects your stack (looks at `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`).
    - Writes `pickaxis.yaml` at your project root (committed; shared with team).
-   - Registers the MCP server in `.claude/settings.json`.
+   - Registers the MCP server in `.claude/settings.json` — and detects it was installed from a git URL, so it writes the GitHub spec into the MCP command (not the bare `pickaxis` package name). This means Claude Code can actually launch the server without pickaxis being published to npm.
    - Drops the skill bundle at `.claude/skills/pickaxis/` — `SKILL.md` plus 5 slash commands.
 
 Pin to a specific tag or commit so a colleague doesn't get accidentally upgraded:
@@ -40,6 +40,12 @@ Pin to a specific tag or commit so a colleague doesn't get accidentally upgraded
 ```bash
 npx github:girleadan/pickaxis#v0.1.0 init   # once tags exist
 npx github:girleadan/pickaxis#<sha> init    # always works
+```
+
+If init's auto-detection ever gets it wrong (rare), pass `--ref` explicitly:
+
+```bash
+npx github:girleadan/pickaxis#main init --ref github:girleadan/pickaxis#main
 ```
 
 ### Path B — From a local clone (for hacking on pickaxis itself)
