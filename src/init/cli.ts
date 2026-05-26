@@ -37,36 +37,71 @@ async function main() {
  *
  * Priority:
  *   1. Explicit --ref <spec> flag from the command line.
- *   2. Auto-detected from this package's own package.json `_from` field, which npm
- *      sets when the package was installed from a non-registry source (git URL, tarball, local path).
- *   3. Fallback to the bare package name (assumes a future npm publish).
+ *   2. Auto-detect by walking up the directory tree from PACKAGE_ROOT looking for the closest
+ *      parent package.json that lists "pickaxis" in its dependencies. If the dep value points
+ *      at a git URL, that's the spec. This catches both `npm install github:...` (which writes
+ *      the spec into the project's package.json) and `npx github:...` (which writes a synthetic
+ *      package.json at the npx cache root).
+ *   3. Legacy: try this package's own package.json `_from` field. npm < 10 wrote it; npm 10+ doesn't.
+ *   4. Fallback to the bare package name (assumes a future npm publish).
  */
 async function resolveMcpSpec(): Promise<string> {
   const refFlag = getRefFromArgv();
   if (refFlag) return refFlag;
 
+  // (2) walk up looking for a parent package.json that names us as a git dep
+  const fromParent = await findGitSpecInParents(PACKAGE_ROOT);
+  if (fromParent) return fromParent;
+
+  // (3) legacy: _from on the installed package.json (npm < 10)
   try {
     const ownPackageJson = JSON.parse(
       await fs.readFile(join(PACKAGE_ROOT, "package.json"), "utf8"),
     );
     const from = ownPackageJson._from;
-    if (
-      typeof from === "string" &&
-      (from.startsWith("github:") ||
-        from.startsWith("gitlab:") ||
-        from.startsWith("bitbucket:") ||
-        from.startsWith("git+") ||
-        from.startsWith("git://") ||
-        from.endsWith(".git") ||
-        from.endsWith(".tgz"))
-    ) {
-      return from;
-    }
+    if (typeof from === "string" && looksLikeGitSpec(from)) return from;
   } catch {
-    // ignore — fall through to default
+    // ignore
   }
 
   return "pickaxis";
+}
+
+function looksLikeGitSpec(spec: string): boolean {
+  return (
+    spec.startsWith("github:") ||
+    spec.startsWith("gitlab:") ||
+    spec.startsWith("bitbucket:") ||
+    spec.startsWith("git+") ||
+    spec.startsWith("git://") ||
+    spec.endsWith(".git") ||
+    spec.endsWith(".tgz") ||
+    spec.startsWith("https://github.com/") ||
+    spec.startsWith("https://gitlab.com/")
+  );
+}
+
+async function findGitSpecInParents(startDir: string): Promise<string | undefined> {
+  let dir = startDir;
+  for (let i = 0; i < 10; i++) {
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+    const pkgPath = join(dir, "package.json");
+    try {
+      const pkg = JSON.parse(await fs.readFile(pkgPath, "utf8"));
+      const deps = {
+        ...(pkg.dependencies ?? {}),
+        ...(pkg.devDependencies ?? {}),
+        ...(pkg.optionalDependencies ?? {}),
+      };
+      const spec = deps.pickaxis;
+      if (typeof spec === "string" && looksLikeGitSpec(spec)) return spec;
+    } catch {
+      // file missing or unreadable — keep walking
+    }
+  }
+  return undefined;
 }
 
 function getRefFromArgv(): string | undefined {
