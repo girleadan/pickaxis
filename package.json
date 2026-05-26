@@ -1,0 +1,37 @@
+{
+  "name": "pickaxis",
+  "version": "0.1.0",
+  "description": "A companion for developers who vibe-code with AI. Assesses what you actually know, then helps you grow — not just ship.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "pickaxis": "dist/init/cli.js"
+  },
+  "exports": {
+    ".": "./dist/mcp-server/index.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "mcp": "node dist/mcp-server/index.js",
+    "init": "node dist/init/cli.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "yaml": "^2.6.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
