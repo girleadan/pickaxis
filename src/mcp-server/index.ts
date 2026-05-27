@@ -22,6 +22,7 @@ import type { Outcome } from "../profile/model.js";
 import { BUILTIN_PACKS, detectPacks, getPack } from "../packs/index.js";
 import { readRepoSignals } from "./signals.js";
 import { walkRepo } from "../codemap/indexer.js";
+import { probeFilesForAxis } from "../assessment/axisProbes.js";
 
 /**
  * Resolve the project root. Priority:
@@ -280,15 +281,32 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
         weakestAxis(profile.axes);
       const pool = packs.flatMap((p) => p.questions).filter((q) => q.axis === focusAxis);
       const question = pool[0];
-      if (!question) {
-        return `No questions available for axis ${focusAxis}. Try a different axis or install more packs.`;
+      if (question) {
+        return JSON.stringify(
+          {
+            axis: focusAxis,
+            question,
+            instruction:
+              "Ask the developer this question. When they answer, grade against the rubric, then call assess_answer with the questionId and outcome.",
+          },
+          null,
+          2,
+        );
+      }
+
+      // No curated question for this axis — generate code-grounded questions instead.
+      const probe = probeFilesForAxis(focusAxis, await walkRepo(repoRoot), signals);
+      if (probe.files.length === 0) {
+        return `No curated questions and no relevant code found for axis "${focusAxis}" in this project. Try a different axis.`;
       }
       return JSON.stringify(
         {
           axis: focusAxis,
-          question,
+          mode: "dynamic",
+          focus: probe.focus,
+          files: probe.files,
           instruction:
-            "Ask the developer this question. When they answer, grade against the rubric, then call assess_answer with the questionId and outcome.",
+            `No curated questions exist for the "${focusAxis}" axis, so assess it from this codebase. Read a representative sample of the listed files, then generate 2–4 questions for "${focusAxis}" grounded in what THIS project actually does/uses (per the focus note). Ask one at a time; do not reveal the answer first. Grade honestly (partial credit is normal), then record each via assess_answer with axis set to "${focusAxis}", prompt set to the exact question you asked (no questionId), a short answerSummary, the outcome, and grader notes.`,
         },
         null,
         2,
