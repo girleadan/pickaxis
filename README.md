@@ -33,18 +33,22 @@ npx github:girleadan/pickaxis#main init
 
 Then in Claude Code, run `/px-assess` to take the initial 5–10 minute assessment.
 
-For local-clone installs, npm-link development setup, configuration, and troubleshooting, see **[docs/getting-started.md](docs/getting-started.md)**.
+**New here?** Read the **[full usage guide](docs/usage.md)**. For installation details (local clone, npm-link dev setup, troubleshooting) see **[getting-started.md](docs/getting-started.md)**.
 
 ## Slash commands (in Claude Code)
 
-| Command          | What it does                                                                 |
-| ---------------- | ---------------------------------------------------------------------------- |
-| `/px-assess`     | Run (or resume) a socratic assessment across all skill axes.                 |
-| `/px-profile`    | Show your current skill profile and knowledge map.                           |
-| `/px-prime <t>`  | Given a ticket title/description, suggest where to look and what to read.    |
-| `/px-challenge`  | Suggest a stretch exercise targeting your weakest axis.                      |
-| `/px-map <q>`    | "Where in this repo does X live?" — verbosity scales to your familiarity.    |
+| Command | What it does |
+| --- | --- |
+| `/px-assess [axis]` | Assess a skill axis (your weakest if you don't name one) — curated questions plus questions generated from your own code. |
+| `/px-assess-module <area>` | Assess a specific code area; pickaxis reads that module and quizzes you on it. |
+| `/px-review [axis\|module]` | Review what you got wrong/partial before, with the grader's feedback. |
+| `/px-profile` | Show your current skill profile and module familiarity. |
+| `/px-prime <ticket>` | Before a ticket: where to look, what to watch for, what to know first. |
+| `/px-challenge` | A stretch exercise targeting your weakest axis. |
+| `/px-map <query>` | "Where in this repo does X live?" — detail scales to your familiarity. |
 
-## Status
+See **[docs/usage.md](docs/usage.md)** for what each command does in depth, how scoring works, and a suggested workflow.
 
-This is the initial scaffold. The MCP server boots, tools are registered with real schemas, and the init flow works end-to-end. Assessment logic and stack packs are minimal seeds — see [docs/pack-authoring.md](docs/pack-authoring.md) for how the system is meant to expand.
+## How it works
+
+Pickaxis recognizes any project's languages and frameworks automatically (Django, Symfony, React, Go, Rails, …) and assesses them with a mix of curated questions and questions generated from your actual code — so you don't need a hand-written pack per stack. Curated packs (`polyglot` always-on, `shopware-php` for Shopware) are an optional polish layer; see [docs/pack-authoring.md](docs/pack-authoring.md) to add your own.

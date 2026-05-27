@@ -173,6 +173,7 @@ rm -rf ~/.pickaxis
 
 ## Next reads
 
+- [`docs/usage.md`](usage.md) — **the full usage guide**: every command in depth, how scoring works, a suggested workflow
 - [`README.md`](../README.md) — the motivation and privacy stance
 - [`docs/pack-authoring.md`](pack-authoring.md) — how to write a stack pack for your framework
 - Issues: https://github.com/girleadan/pickaxis/issues
