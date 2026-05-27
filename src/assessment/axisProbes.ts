@@ -58,30 +58,24 @@ function topLevelDirs(files: string[]): string[] {
 }
 
 function frameworkFocus(signals: RepoSignals): string {
-  const deps = [...(signals.composerRequires ?? []), ...(signals.packageJsonDeps ?? [])];
-  const known: Record<string, string> = {
-    "shopware/core": "Shopware",
-    "symfony/framework-bundle": "Symfony",
-    laravel: "Laravel",
-    django: "Django",
-    react: "React",
-    vue: "Vue",
-    next: "Next.js",
-    nuxt: "Nuxt",
-    vite: "Vite",
-    "@nestjs/core": "NestJS",
-    express: "Express",
-    fastapi: "FastAPI",
-    flask: "Flask",
-    rails: "Rails",
-  };
-  const hits = new Set<string>();
-  for (const d of deps) {
-    for (const key in known) {
-      if (d === key || d.includes(key)) hits.add(known[key]);
+  const fw = (signals.stacks ?? []).filter((s) => s.kind === "framework");
+  // Group by name, collecting non-root locations.
+  const order: string[] = [];
+  const byName = new Map<string, string[]>();
+  for (const s of fw) {
+    if (!byName.has(s.name)) {
+      byName.set(s.name, []);
+      order.push(s.name);
     }
+    if (s.root !== ".") byName.get(s.name)!.push(s.root);
   }
-  const named = hits.size > 0 ? ` This project appears to use: ${[...hits].join(", ")}.` : "";
+  const list = order
+    .map((name) => {
+      const roots = byName.get(name)!;
+      return roots.length > 0 ? `${name} (${roots.join(", ")})` : name;
+    })
+    .join(", ");
+  const named = list ? ` This project uses: ${list}.` : "";
   return `Assess how well the developer understands the framework(s) this project is built on — conventions, lifecycle, configuration, and the patterns the framework expects.${named}`;
 }
 
@@ -114,7 +108,8 @@ export function probeFilesForAxis(
     }
 
     case "language": {
-      const ext = dominantExtension(files);
+      // Prefer the census-derived primary language from stack detection; fall back to local heuristic.
+      const ext = signals.primaryLanguage ?? dominantExtension(files);
       const src = files.filter(
         (f) => SOURCE_EXT.test(f) && !TEST_PATH.test(f) && (!ext || f.toLowerCase().endsWith("." + ext)),
       );

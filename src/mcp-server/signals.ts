@@ -1,15 +1,8 @@
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { RepoSignals } from "../packs/contract.js";
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await fs.access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { walkRepo } from "../codemap/indexer.js";
+import { detectStacks } from "../assessment/stackDetect.js";
 
 async function readJsonSafely(path: string): Promise<Record<string, unknown> | null> {
   try {
@@ -20,49 +13,51 @@ async function readJsonSafely(path: string): Promise<Record<string, unknown> | n
   }
 }
 
+function basename(relPath: string): string {
+  return relPath.split("/").pop() ?? relPath;
+}
+
 export async function readRepoSignals(repoRoot: string): Promise<RepoSignals> {
-  const composerPath = join(repoRoot, "composer.json");
-  const packagePath = join(repoRoot, "package.json");
-  const requirementsPath = join(repoRoot, "requirements.txt");
-  const pyprojectPath = join(repoRoot, "pyproject.toml");
+  const files = await walkRepo(repoRoot);
 
-  const [hasComposerJson, hasPackageJson, hasRequirementsTxt, hasPyprojectToml] =
-    await Promise.all([
-      exists(composerPath),
-      exists(packagePath),
-      exists(requirementsPath),
-      exists(pyprojectPath),
-    ]);
+  // Aggregate manifests across the whole tree, not just the repo root.
+  const composerFiles = files.filter((f) => basename(f) === "composer.json");
+  const packageFiles = files.filter((f) => basename(f) === "package.json");
+  const hasComposerJson = composerFiles.length > 0;
+  const hasPackageJson = packageFiles.length > 0;
+  const hasRequirementsTxt = files.some((f) => basename(f) === "requirements.txt");
+  const hasPyprojectToml = files.some((f) => basename(f) === "pyproject.toml");
 
-  let composerRequires: string[] | undefined;
-  if (hasComposerJson) {
-    const composer = await readJsonSafely(composerPath);
+  const composerSet = new Set<string>();
+  for (const rel of composerFiles) {
+    const composer = await readJsonSafely(join(repoRoot, rel));
     if (composer && typeof composer.require === "object" && composer.require !== null) {
-      composerRequires = Object.keys(composer.require as Record<string, unknown>);
+      for (const k of Object.keys(composer.require as Record<string, unknown>)) composerSet.add(k);
     }
   }
 
-  let packageJsonDeps: string[] | undefined;
-  if (hasPackageJson) {
-    const pkg = await readJsonSafely(packagePath);
-    if (pkg) {
-      const deps: string[] = [];
-      for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
-        const block = pkg[key];
-        if (block && typeof block === "object") {
-          deps.push(...Object.keys(block as Record<string, unknown>));
-        }
+  const packageSet = new Set<string>();
+  for (const rel of packageFiles) {
+    const pkg = await readJsonSafely(join(repoRoot, rel));
+    if (!pkg) continue;
+    for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
+      const block = pkg[key];
+      if (block && typeof block === "object") {
+        for (const name of Object.keys(block as Record<string, unknown>)) packageSet.add(name);
       }
-      packageJsonDeps = deps;
     }
   }
+
+  const { stacks, primaryLanguage } = await detectStacks(repoRoot, files);
 
   return {
     hasComposerJson,
     hasPackageJson,
     hasRequirementsTxt,
     hasPyprojectToml,
-    composerRequires,
-    packageJsonDeps,
+    composerRequires: composerSet.size > 0 ? [...composerSet] : undefined,
+    packageJsonDeps: packageSet.size > 0 ? [...packageSet] : undefined,
+    stacks,
+    primaryLanguage,
   };
 }

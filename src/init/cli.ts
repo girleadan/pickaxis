@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { stringify as yamlStringify } from "yaml";
 import { detectPacks } from "../packs/index.js";
 import { readRepoSignals } from "../mcp-server/signals.js";
+import { describeStacks, DetectedStack } from "../assessment/stackDetect.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
@@ -16,10 +17,14 @@ async function main() {
   console.log(`Initializing pickaxis in ${repoRoot}`);
 
   const signals = await readRepoSignals(repoRoot);
+  const stacks = signals.stacks ?? [];
+  console.log(
+    `  detected stacks: ${describeStacks({ stacks, primaryLanguage: signals.primaryLanguage, languageCensus: {} })}`,
+  );
   const packs = detectPacks(signals);
   console.log(`  detected packs: ${packs.map((p) => p.id).join(", ") || "(none)"}`);
 
-  await writeConfig(repoRoot, packs.map((p) => p.id));
+  await writeConfig(repoRoot, packs.map((p) => p.id), stacks);
   console.log("  wrote pickaxis.yaml");
 
   const mcpSpec = await resolveMcpSpec();
@@ -117,7 +122,11 @@ function getRefFromArgv(): string | undefined {
   return undefined;
 }
 
-async function writeConfig(repoRoot: string, packIds: string[]): Promise<void> {
+async function writeConfig(
+  repoRoot: string,
+  packIds: string[],
+  stacks: DetectedStack[],
+): Promise<void> {
   const configPath = join(repoRoot, "pickaxis.yaml");
   if (await exists(configPath)) {
     console.log("  pickaxis.yaml already exists — leaving it alone");
@@ -125,6 +134,7 @@ async function writeConfig(repoRoot: string, packIds: string[]): Promise<void> {
   }
   const config = {
     packs: packIds,
+    detectedStacks: stacks.map((s) => (s.root === "." ? s.id : `${s.id}@${s.root}`)),
     assess: {
       reassessAfterDays: 30,
     },

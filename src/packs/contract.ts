@@ -1,4 +1,5 @@
 import { SkillAxis } from "../profile/model.js";
+import type { DetectedStack } from "../assessment/stackDetect.js";
 
 export interface RepoSignals {
   hasComposerJson: boolean;
@@ -7,6 +8,9 @@ export interface RepoSignals {
   hasPyprojectToml: boolean;
   composerRequires?: string[];
   packageJsonDeps?: string[];
+  // Populated by detectStacks — present languages/frameworks at any depth.
+  stacks?: DetectedStack[];
+  primaryLanguage?: string;
 }
 
 export interface Question {
