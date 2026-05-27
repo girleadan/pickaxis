@@ -5,7 +5,8 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { SKILL_AXES } from "../profile/model.js";
 import {
   appendEvidence,
@@ -17,7 +18,28 @@ import { BUILTIN_PACKS, detectPacks, getPack } from "../packs/index.js";
 import { readRepoSignals } from "./signals.js";
 import { walkRepo } from "../codemap/indexer.js";
 
-const repoRoot = resolve(process.env.PICKAXIS_REPO_ROOT ?? process.cwd());
+/**
+ * Resolve the project root. Priority:
+ *   1. PICKAXIS_REPO_ROOT env var (explicit override).
+ *   2. Walk up from cwd to the nearest directory containing pickaxis.yaml.
+ *      Claude Code launches project MCP servers with cwd at the project root,
+ *      so this normally matches on the first iteration. This keeps .mcp.json
+ *      portable — no machine-specific absolute path baked in.
+ *   3. Fall back to cwd.
+ */
+function resolveRepoRoot(): string {
+  if (process.env.PICKAXIS_REPO_ROOT) return resolve(process.env.PICKAXIS_REPO_ROOT);
+  let dir = resolve(process.cwd());
+  for (let i = 0; i < 25; i++) {
+    if (existsSync(join(dir, "pickaxis.yaml"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(process.cwd());
+}
+
+const repoRoot = resolveRepoRoot();
 
 const tools = [
   {

@@ -24,7 +24,7 @@ async function main() {
 
   const mcpSpec = await resolveMcpSpec();
   await registerMcpServer(repoRoot, mcpSpec);
-  console.log(`  registered MCP server in .claude/settings.json (using "${mcpSpec}")`);
+  console.log(`  registered MCP server in .mcp.json (using "${mcpSpec}")`);
 
   await dropSkillBundle(repoRoot);
   console.log("  installed skill to .claude/skills/pickaxis/");
@@ -141,31 +141,32 @@ async function writeConfig(repoRoot: string, packIds: string[]): Promise<void> {
   );
 }
 
+// MCP servers are configured in .mcp.json at the project root — the documented,
+// committable, project-scoped location. (mcpServers in .claude/settings.json is
+// ignored by Claude Code.) No absolute PICKAXIS_REPO_ROOT is written here so the
+// file stays portable when committed; the server finds the root via pickaxis.yaml.
 async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<void> {
-  const settingsDir = join(repoRoot, ".claude");
-  const settingsPath = join(settingsDir, "settings.json");
-  await fs.mkdir(settingsDir, { recursive: true });
+  const mcpPath = join(repoRoot, ".mcp.json");
 
-  let settings: Record<string, unknown> = {};
-  if (await exists(settingsPath)) {
+  let config: Record<string, unknown> = {};
+  if (await exists(mcpPath)) {
     try {
-      settings = JSON.parse(await fs.readFile(settingsPath, "utf8"));
+      config = JSON.parse(await fs.readFile(mcpPath, "utf8"));
     } catch {
-      console.warn("  .claude/settings.json exists but is not valid JSON — skipping merge");
+      console.warn("  .mcp.json exists but is not valid JSON — skipping merge");
       return;
     }
   }
 
   const mcpServers =
-    (settings.mcpServers as Record<string, unknown> | undefined) ?? {};
+    (config.mcpServers as Record<string, unknown> | undefined) ?? {};
   mcpServers.pickaxis = {
     command: "npx",
     args: ["-y", mcpSpec, "--mcp"],
-    env: { PICKAXIS_REPO_ROOT: repoRoot },
   };
-  settings.mcpServers = mcpServers;
+  config.mcpServers = mcpServers;
 
-  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+  await fs.writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
 // The SKILL.md drives Claude's proactive behavior — it lives under .claude/skills/.

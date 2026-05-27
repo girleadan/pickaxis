@@ -32,7 +32,7 @@ What that single command does:
 3. Executes `init`, which:
    - Detects your stack (looks at `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`).
    - Writes `pickaxis.yaml` at your project root (committed; shared with team).
-   - Registers the MCP server in `.claude/settings.json` — and detects it was installed from a git URL, so it writes the GitHub spec into the MCP command (not the bare `pickaxis` package name). This means Claude Code can actually launch the server without pickaxis being published to npm.
+   - Registers the MCP server in `.mcp.json` at the project root (the committable, project-scoped MCP config) — and detects it was installed from a git URL, so it writes the GitHub spec into the MCP command (not the bare `pickaxis` package name). This means Claude Code can actually launch the server without pickaxis being published to npm.
    - Installs `SKILL.md` at `.claude/skills/pickaxis/` (drives Claude's proactive behavior).
    - Installs the 5 `/px-*` slash commands at `.claude/commands/` (that's the only directory Claude Code scans for project slash commands).
 
@@ -96,8 +96,9 @@ npx pickaxis init
 | Path                                                  | Purpose                              | Committed?   |
 | ----------------------------------------------------- | ------------------------------------ | ------------ |
 | `<repo>/pickaxis.yaml`                                | Team-wide config (packs, settings)   | **Yes**      |
-| `<repo>/.claude/settings.json`                        | MCP registration                     | Up to you    |
-| `<repo>/.claude/skills/pickaxis/`                     | Skill bundle (`SKILL.md` + commands) | Up to you    |
+| `<repo>/.mcp.json`                                    | MCP server registration              | Yes (portable) |
+| `<repo>/.claude/commands/px-*.md`                     | The 5 slash commands                 | Up to you    |
+| `<repo>/.claude/skills/pickaxis/SKILL.md`             | Skill — Claude's proactive behavior  | Up to you    |
 | `~/.pickaxis/<repo-fingerprint>/profile.json`         | Your personal skill profile          | **Never**    |
 | `~/.pickaxis/<repo-fingerprint>/evidence.jsonl`       | Passive observation log              | **Never**    |
 
@@ -137,7 +138,8 @@ From the project where pickaxis is installed:
 
 ```bash
 rm -rf .claude/skills/pickaxis pickaxis.yaml
-# then manually remove the "pickaxis" entry under "mcpServers" in .claude/settings.json
+# also remove the slash commands and the MCP registration
+rm -f .claude/commands/px-*.md .mcp.json
 ```
 
 If you used `npm link`:
@@ -157,7 +159,9 @@ rm -rf ~/.pickaxis
 
 **Slash commands don't appear in Claude Code.** Restart Claude Code so it re-scans `.claude/skills/`.
 
-**`/px-profile` errors out.** Check the `PICKAXIS_REPO_ROOT` env var in `.claude/settings.json`'s `mcpServers.pickaxis.env` — it must be the absolute path to your project root.
+**`/px-*` says "Unknown command".** Restart Claude Code — slash commands are loaded at startup. Confirm `.claude/commands/px-*.md` exist.
+
+**Slash command runs but says the MCP server/tool isn't available.** Check `.mcp.json` exists at the project root and lists `pickaxis` under `mcpServers`. Claude Code prompts you to approve project MCP servers the first time — approve pickaxis (or run `/mcp` to manage). The server finds your project root via the nearest `pickaxis.yaml`; if your profile looks wrong, make sure `pickaxis.yaml` is at the repo root.
 
 **`npx pickaxis` says "command not found".** Either install via `npm link` (Path B) or use the explicit GitHub form (`npx github:girleadan/pickaxis#main init`). The bare `npx pickaxis` only works once the package is on npm.
 
