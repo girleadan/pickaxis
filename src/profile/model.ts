@@ -26,13 +26,23 @@ export const SKILL_AXIS_LABELS: Record<SkillAxis, string> = {
   ai_literacy: "AI literacy",
 };
 
+// Integer 0–4 — used for *display* and for indexing LEVEL_NAMES.
 export const SkillLevel = z.number().int().min(0).max(4);
 export type SkillLevel = z.infer<typeof SkillLevel>;
 
+// Continuous 0–4 — the *stored* score. Accumulates fractional evidence so partial
+// answers aren't lost to rounding. Integers (from older profiles) validate fine.
+export const Score = z.number().min(0).max(4);
+export type Score = z.infer<typeof Score>;
+
 export const LEVEL_NAMES = ["unknown", "novice", "familiar", "proficient", "expert"] as const;
 
+export function displayLevel(score: number): SkillLevel {
+  return Math.max(0, Math.min(4, Math.round(score))) as SkillLevel;
+}
+
 export const AxisScore = z.object({
-  level: SkillLevel,
+  level: Score,
   confidence: z.number().min(0).max(1),
   lastAssessedAt: z.string().datetime().optional(),
   notes: z.string().optional(),
@@ -41,7 +51,7 @@ export type AxisScore = z.infer<typeof AxisScore>;
 
 export const ModuleFamiliarity = z.object({
   path: z.string(),
-  level: SkillLevel,
+  level: Score,
   edits: z.number().int().nonnegative().default(0),
   lastTouchedAt: z.string().datetime().optional(),
 });

@@ -5,6 +5,7 @@ import { join, resolve } from "node:path";
 import {
   AssessmentRecord,
   blankProfile,
+  displayLevel,
   EvidenceEvent,
   Outcome,
   Profile,
@@ -77,6 +78,9 @@ export async function appendEvidence(
   await fs.appendFile(evidencePath(repoRoot), JSON.stringify(event) + "\n", "utf8");
 }
 
+const clamp04 = (n: number) => Math.max(0, Math.min(4, n));
+
+// Additive, fractional (no rounding) — used for passive evidence via profile_update.
 export async function bumpAxis(
   repoRoot: string,
   axis: SkillAxis,
@@ -85,15 +89,53 @@ export async function bumpAxis(
 ): Promise<Profile> {
   const profile = await loadOrInitProfile(repoRoot);
   const current = profile.axes[axis] ?? { level: 0, confidence: 0 };
-  const newLevel = Math.max(0, Math.min(4, Math.round(current.level + delta)));
   profile.axes[axis] = {
-    level: newLevel,
+    level: clamp04(current.level + delta),
     confidence: Math.min(1, current.confidence + 0.1),
     lastAssessedAt: new Date().toISOString(),
     notes: note ?? current.notes,
   };
   await saveProfile(repoRoot, profile);
   return profile;
+}
+
+const SCORING_RATE = 0.5;
+
+function answerTarget(outcome: Outcome, difficulty: number, currentScore: number): number {
+  switch (outcome) {
+    case "correct":
+      return clamp04(difficulty + 1);
+    case "partial":
+      return clamp04(difficulty);
+    case "incorrect":
+      return clamp04(difficulty - 1);
+    case "skipped":
+      return currentScore;
+  }
+}
+
+// Difficulty-weighted EMA toward an outcome target. Returns the score delta applied
+// (so callers can move a related module score by the same amount).
+export async function applyAnswer(
+  repoRoot: string,
+  axis: SkillAxis,
+  outcome: Outcome,
+  difficulty: number,
+  note?: string,
+): Promise<{ profile: Profile; scoreDelta: number }> {
+  const profile = await loadOrInitProfile(repoRoot);
+  const current = profile.axes[axis] ?? { level: 0, confidence: 0 };
+  const target = answerTarget(outcome, difficulty, current.level);
+  const rate = outcome === "skipped" ? 0 : SCORING_RATE;
+  const newScore = clamp04(current.level + rate * (target - current.level));
+  profile.axes[axis] = {
+    level: newScore,
+    confidence: Math.min(1, current.confidence + (outcome === "skipped" ? 0 : 0.12)),
+    lastAssessedAt: new Date().toISOString(),
+    notes: note ?? current.notes,
+  };
+  await saveProfile(repoRoot, profile);
+  return { profile, scoreDelta: newScore - current.level };
 }
 
 // Upsert a per-module familiarity score. Module assessment is the only thing that
@@ -107,12 +149,12 @@ export async function bumpModule(
   const existing = profile.modules.find((m) => m.path === modulePath);
   const now = new Date().toISOString();
   if (existing) {
-    existing.level = Math.max(0, Math.min(4, Math.round(existing.level + delta)));
+    existing.level = clamp04(existing.level + delta);
     existing.lastTouchedAt = now;
   } else {
     profile.modules.push({
       path: modulePath,
-      level: Math.max(0, Math.min(4, Math.round(delta))),
+      level: clamp04(delta),
       edits: 0,
       lastTouchedAt: now,
     });
@@ -210,13 +252,15 @@ export function summarizeProfile(profile: Profile): string {
   for (const axis of SKILL_AXES) {
     const score = profile.axes[axis];
     if (!score) continue;
-    lines.push(`  ${axis.padEnd(14)} L${score.level} (conf ${score.confidence.toFixed(2)})`);
+    lines.push(
+      `  ${axis.padEnd(14)} L${displayLevel(score.level)} (score ${score.level.toFixed(1)}, conf ${score.confidence.toFixed(2)})`,
+    );
   }
   if (profile.modules.length > 0) {
     lines.push("");
     lines.push("Module familiarity:");
     for (const m of profile.modules.slice(0, 10)) {
-      lines.push(`  L${m.level}  ${m.path}  (${m.edits} edits)`);
+      lines.push(`  L${displayLevel(m.level)} (score ${m.level.toFixed(1)})  ${m.path}  (${m.edits} edits)`);
     }
   }
   return lines.join("\n");

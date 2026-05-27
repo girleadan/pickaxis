@@ -8,11 +8,11 @@ The user wants to take (or resume) a pickaxis skills assessment, scoped to a **s
 If instead they want to be assessed on a **specific code area / module** (e.g. `connectors_manager`), use `/px-assess-module <area>` — that reads the module's code and quizzes them on it.
 
 1. Call the `assess_start` MCP tool. If the user passed an axis argument (devops, language, framework, codebase, business, database, testing, security, ai_literacy), include it; otherwise let pickaxis pick the weakest axis.
-2. The response is one of two shapes — handle both:
+2. The response is one unified session block: `{ axis, curated: [...], projectSpecific: {focus, files} | null, instruction }`. Run it in this order:
 
-   **(a) Static question** — the response has a `question` object with a `rubric`. Read the rubric privately (don't show it). Show only the prompt. After the user answers, grade against the rubric and call `assess_answer` with the `questionId`, the `outcome` (`correct`/`partial`/`incorrect`/`skipped`), grader reasoning in `notes`, and a short `answerSummary`.
+   **First — curated questions** (`curated[]`, may be empty): for each, read its `rubric` privately (never show it), show only the `prompt`, wait for the answer, grade against the rubric, then call `assess_answer` with the `questionId`, the `outcome` (`correct`/`partial`/`incorrect`/`skipped`), a short `answerSummary`, and grader reasoning in `notes`. (Difficulty is taken from the question automatically.)
 
-   **(b) Dynamic** — the response has `mode: "dynamic"`, a `focus` note, and a list of `files`. There's no curated question pool for this axis, so generate your own: read a representative sample of the listed files, then create 2–4 questions grounded in what THIS codebase actually does/uses (guided by `focus`). Ask one at a time; don't reveal answers first. Grade each honestly, then record via `assess_answer` with **`axis`** set to this axis and **`prompt`** set to the exact question you asked (no `questionId`), plus `answerSummary`, `outcome`, and `notes`.
+   **Then — project-specific questions** (if `projectSpecific` is present): read a representative sample of `projectSpecific.files`, then ask **1–2** questions about how THIS project handles the axis, guided by `projectSpecific.focus`. Grade each, then record via `assess_answer` with **`axis`** set to this axis, **`prompt`** set to the exact question you asked (no `questionId`), a **`difficulty`** estimate 0–4 (be honest — only hard questions can push a score toward expert), plus `answerSummary`, `outcome`, `notes`.
 
-3. Be honest, not generous — partial credit is common and that's fine.
-4. Briefly tell the user each outcome and what their score moved to. Offer to continue or stop, and mention `/px-review` to revisit feedback later.
+3. Ask one question at a time; never reveal the answer first. Be honest, not generous — partial credit is common.
+4. After each answer, briefly tell the user the outcome and the new score. At the end, offer to continue or stop and mention `/px-review` to revisit feedback later.

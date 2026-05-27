@@ -11,6 +11,7 @@ import { SKILL_AXES } from "../profile/model.js";
 import {
   appendAssessmentRecord,
   appendEvidence,
+  applyAnswer,
   assessmentLogFile,
   bumpAxis,
   bumpModule,
@@ -19,6 +20,7 @@ import {
   summarizeProfile,
 } from "../profile/store.js";
 import type { Outcome } from "../profile/model.js";
+import { displayLevel } from "../profile/model.js";
 import { BUILTIN_PACKS, detectPacks, getPack } from "../packs/index.js";
 import { readRepoSignals } from "./signals.js";
 import { walkRepo } from "../codemap/indexer.js";
@@ -87,6 +89,12 @@ const tools = [
         module: {
           type: "string",
           description: "Module path/name this question was about (module-scoped assessments).",
+        },
+        difficulty: {
+          type: "integer",
+          minimum: 0,
+          maximum: 4,
+          description: "Difficulty of a dynamic question (0–4). Ignored for static questions (their own difficulty is used). Defaults to 2 if omitted.",
         },
         answerSummary: {
           type: "string",
@@ -279,34 +287,28 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
       const focusAxis =
         (args.axis as (typeof SKILL_AXES)[number] | undefined) ??
         weakestAxis(profile.axes);
-      const pool = packs.flatMap((p) => p.questions).filter((q) => q.axis === focusAxis);
-      const question = pool[0];
-      if (question) {
-        return JSON.stringify(
-          {
-            axis: focusAxis,
-            question,
-            instruction:
-              "Ask the developer this question. When they answer, grade against the rubric, then call assess_answer with the questionId and outcome.",
-          },
-          null,
-          2,
-        );
-      }
-
-      // No curated question for this axis — generate code-grounded questions instead.
+      const curated = packs.flatMap((p) => p.questions).filter((q) => q.axis === focusAxis);
       const probe = probeFilesForAxis(focusAxis, await walkRepo(repoRoot), signals);
-      if (probe.files.length === 0) {
+      const projectSpecific = probe.files.length > 0 ? probe : null;
+
+      if (curated.length === 0 && !projectSpecific) {
         return `No curated questions and no relevant code found for axis "${focusAxis}" in this project. Try a different axis.`;
       }
+
       return JSON.stringify(
         {
           axis: focusAxis,
-          mode: "dynamic",
-          focus: probe.focus,
-          files: probe.files,
+          curated,
+          projectSpecific,
           instruction:
-            `No curated questions exist for the "${focusAxis}" axis, so assess it from this codebase. Read a representative sample of the listed files, then generate 2–4 questions for "${focusAxis}" grounded in what THIS project actually does/uses (per the focus note). Ask one at a time; do not reveal the answer first. Grade honestly (partial credit is normal), then record each via assess_answer with axis set to "${focusAxis}", prompt set to the exact question you asked (no questionId), a short answerSummary, the outcome, and grader notes.`,
+            `Run a short assessment session for the "${focusAxis}" axis. ` +
+            (curated.length > 0
+              ? `First ask each curated question below (show only its prompt — keep the rubric private), grade honestly against the rubric, and record via assess_answer with that questionId (include answerSummary + notes). `
+              : `There are no curated questions for this axis. `) +
+            (projectSpecific
+              ? `Then read a representative sample of projectSpecific.files and ask 1–2 questions about how THIS project handles "${focusAxis}" (guided by projectSpecific.focus); grade and record each via assess_answer with axis "${focusAxis}", your prompt (no questionId), a difficulty 0–4 estimate, answerSummary, outcome, and notes. `
+              : ``) +
+            `Ask one question at a time; never reveal the answer first; partial credit is normal. At the end, mention /px-review.`,
         },
         null,
         2,
@@ -320,14 +322,16 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
       const notes = args.notes as string | undefined;
       const answerSummary = args.answerSummary as string | undefined;
 
-      // Resolve axis + prompt: static-pack question (by id) or dynamic (passed in).
+      // Resolve axis + prompt + difficulty: static-pack question (by id) or dynamic (passed in).
       let axis: (typeof SKILL_AXES)[number];
       let prompt: string;
+      let difficulty: number;
       if (questionId) {
         const question = findQuestion(questionId);
         if (!question) return `Unknown question id: ${questionId}`;
         axis = question.axis;
         prompt = question.prompt;
+        difficulty = question.difficulty;
       } else {
         const passedAxis = args.axis as (typeof SKILL_AXES)[number] | undefined;
         const passedPrompt = args.prompt as string | undefined;
@@ -336,19 +340,11 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
         }
         axis = passedAxis;
         prompt = passedPrompt;
+        difficulty = args.difficulty !== undefined ? Number(args.difficulty) : 2;
       }
 
-      const delta =
-        outcome === "correct"
-          ? 0.6
-          : outcome === "partial"
-            ? 0.3
-            : outcome === "incorrect"
-              ? -0.1
-              : 0;
-
-      const profile = await bumpAxis(repoRoot, axis, delta, notes);
-      if (module) await bumpModule(repoRoot, module, delta);
+      const { profile, scoreDelta } = await applyAnswer(repoRoot, axis, outcome, difficulty, notes);
+      if (module) await bumpModule(repoRoot, module, scoreDelta);
 
       await appendAssessmentRecord(repoRoot, {
         at: new Date().toISOString(),
@@ -359,7 +355,7 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
         answerSummary,
         outcome,
         graderNotes: notes,
-        scoreDelta: delta,
+        scoreDelta,
       });
       await appendEvidence(repoRoot, {
         at: new Date().toISOString(),
@@ -367,13 +363,14 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
         axis,
         modulePath: module,
         detail: `${questionId ?? "dynamic"}:${outcome}`,
-        scoreDelta: delta,
+        scoreDelta,
       });
 
+      const axisScore = profile.axes[axis]?.level ?? 0;
       const moduleNote = module
-        ? ` · ${module} L${profile.modules.find((m) => m.path === module)?.level ?? 0}`
+        ? ` · ${module} score ${(profile.modules.find((m) => m.path === module)?.level ?? 0).toFixed(1)}`
         : "";
-      return `Recorded ${outcome}. ${axis} is now L${profile.axes[axis]?.level}${moduleNote}.`;
+      return `Recorded ${outcome} (difficulty ${difficulty}). ${axis} → L${displayLevel(axisScore)} (score ${axisScore.toFixed(1)})${moduleNote}.`;
     }
 
     case "assessment_history": {
