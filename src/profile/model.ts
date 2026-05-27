@@ -91,3 +91,22 @@ export const EvidenceEvent = z.object({
   scoreDelta: z.number().optional(),
 });
 export type EvidenceEvent = z.infer<typeof EvidenceEvent>;
+
+export const Outcome = z.enum(["correct", "partial", "incorrect", "skipped"]);
+export type Outcome = z.infer<typeof Outcome>;
+
+// A full, reviewable record of one assessed question. Unlike EvidenceEvent (a thin
+// passive-signal trail) this keeps the question, the dev's answer, and the grader's
+// reasoning so "what did I get wrong" is answerable later.
+export const AssessmentRecord = z.object({
+  at: z.string().datetime(),
+  axis: z.enum(SKILL_AXES),
+  module: z.string().optional(),
+  questionId: z.string().optional(),
+  prompt: z.string(),
+  answerSummary: z.string().optional(),
+  outcome: Outcome,
+  graderNotes: z.string().optional(),
+  scoreDelta: z.number(),
+});
+export type AssessmentRecord = z.infer<typeof AssessmentRecord>;

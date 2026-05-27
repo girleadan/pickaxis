@@ -9,11 +9,16 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { SKILL_AXES } from "../profile/model.js";
 import {
+  appendAssessmentRecord,
   appendEvidence,
+  assessmentLogFile,
   bumpAxis,
+  bumpModule,
   loadOrInitProfile,
+  readAssessmentRecords,
   summarizeProfile,
 } from "../profile/store.js";
+import type { Outcome } from "../profile/model.js";
 import { BUILTIN_PACKS, detectPacks, getPack } from "../packs/index.js";
 import { readRepoSignals } from "./signals.js";
 import { walkRepo } from "../codemap/indexer.js";
@@ -60,17 +65,77 @@ const tools = [
   {
     name: "assess_answer",
     description:
-      "Record the result of an assessment question. The host AI grades the user's response against the question's rubric and reports the outcome here. Pickaxis updates the profile accordingly.",
+      "Record the result of an assessment question. The host AI grades the user's response and reports the outcome here; pickaxis updates the profile and saves a reviewable record. For static-pack questions pass `questionId` (prompt/axis are looked up). For dynamic module questions pass `axis` + `prompt` + `module` instead.",
     inputSchema: {
       type: "object",
-      required: ["questionId", "outcome"],
+      required: ["outcome"],
       properties: {
-        questionId: { type: "string" },
+        questionId: {
+          type: "string",
+          description: "ID of a static-pack question. Omit for dynamic module questions.",
+        },
+        axis: {
+          type: "string",
+          enum: SKILL_AXES as unknown as string[],
+          description: "Required when there is no questionId (dynamic question).",
+        },
+        prompt: {
+          type: "string",
+          description: "The question text. Required when there is no questionId.",
+        },
+        module: {
+          type: "string",
+          description: "Module path/name this question was about (module-scoped assessments).",
+        },
+        answerSummary: {
+          type: "string",
+          description: "A short summary of what the developer actually answered.",
+        },
         outcome: {
           type: "string",
           enum: ["correct", "partial", "incorrect", "skipped"],
         },
-        notes: { type: "string", description: "Optional grader notes." },
+        notes: { type: "string", description: "Grader reasoning — why this outcome, what was missed." },
+      },
+    },
+  },
+  {
+    name: "assessment_history",
+    description:
+      "Return past assessment records (question, the dev's answer, outcome, grader reasoning) so the developer can review what they got wrong. Defaults to incorrect + partial outcomes, newest first.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        axis: { type: "string", enum: SKILL_AXES as unknown as string[] },
+        module: { type: "string" },
+        outcome: {
+          type: "string",
+          enum: ["incorrect", "partial", "all"],
+          description: "Filter. Default: incorrect + partial.",
+        },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+      },
+    },
+  },
+  {
+    name: "assess_module_start",
+    description:
+      "Begin a module-scoped assessment of a specific code area. Returns the module's file manifest plus instructions for the host AI to read the code and quiz the developer on what it does, how it's built, and why. The host AI records each answer via assess_answer with `module` set.",
+    inputSchema: {
+      type: "object",
+      required: ["module"],
+      properties: {
+        module: {
+          type: "string",
+          description: "A path or name fragment identifying the module (e.g. 'connectors_manager' or 'src/auth').",
+        },
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 80,
+          default: 40,
+          description: "Max files to include in the manifest.",
+        },
       },
     },
   },
@@ -231,10 +296,30 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
     }
 
     case "assess_answer": {
-      const questionId = args.questionId as string;
-      const outcome = args.outcome as "correct" | "partial" | "incorrect" | "skipped";
-      const question = findQuestion(questionId);
-      if (!question) return `Unknown question id: ${questionId}`;
+      const questionId = args.questionId as string | undefined;
+      const outcome = args.outcome as Outcome;
+      const module = args.module as string | undefined;
+      const notes = args.notes as string | undefined;
+      const answerSummary = args.answerSummary as string | undefined;
+
+      // Resolve axis + prompt: static-pack question (by id) or dynamic (passed in).
+      let axis: (typeof SKILL_AXES)[number];
+      let prompt: string;
+      if (questionId) {
+        const question = findQuestion(questionId);
+        if (!question) return `Unknown question id: ${questionId}`;
+        axis = question.axis;
+        prompt = question.prompt;
+      } else {
+        const passedAxis = args.axis as (typeof SKILL_AXES)[number] | undefined;
+        const passedPrompt = args.prompt as string | undefined;
+        if (!passedAxis || !passedPrompt) {
+          return "For a dynamic question (no questionId), both `axis` and `prompt` are required.";
+        }
+        axis = passedAxis;
+        prompt = passedPrompt;
+      }
+
       const delta =
         outcome === "correct"
           ? 0.6
@@ -243,15 +328,102 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
             : outcome === "incorrect"
               ? -0.1
               : 0;
-      const profile = await bumpAxis(repoRoot, question.axis, delta, args.notes as string);
+
+      const profile = await bumpAxis(repoRoot, axis, delta, notes);
+      if (module) await bumpModule(repoRoot, module, delta);
+
+      await appendAssessmentRecord(repoRoot, {
+        at: new Date().toISOString(),
+        axis,
+        module,
+        questionId,
+        prompt,
+        answerSummary,
+        outcome,
+        graderNotes: notes,
+        scoreDelta: delta,
+      });
       await appendEvidence(repoRoot, {
         at: new Date().toISOString(),
         kind: "assessment_answer",
-        axis: question.axis,
-        detail: `${questionId}:${outcome}`,
+        axis,
+        modulePath: module,
+        detail: `${questionId ?? "dynamic"}:${outcome}`,
         scoreDelta: delta,
       });
-      return `Recorded ${outcome} on ${questionId}. ${question.axis} is now L${profile.axes[question.axis]?.level}.`;
+
+      const moduleNote = module
+        ? ` · ${module} L${profile.modules.find((m) => m.path === module)?.level ?? 0}`
+        : "";
+      return `Recorded ${outcome}. ${axis} is now L${profile.axes[axis]?.level}${moduleNote}.`;
+    }
+
+    case "assessment_history": {
+      const outcomeArg = (args.outcome as string | undefined) ?? "default";
+      const outcomes =
+        outcomeArg === "all"
+          ? undefined
+          : outcomeArg === "incorrect"
+            ? (["incorrect"] as Outcome[])
+            : outcomeArg === "partial"
+              ? (["partial"] as Outcome[])
+              : (["incorrect", "partial"] as Outcome[]);
+      const records = await readAssessmentRecords(repoRoot, {
+        axis: args.axis as (typeof SKILL_AXES)[number] | undefined,
+        module: args.module as string | undefined,
+        outcomes,
+        limit: Number(args.limit ?? 50),
+      });
+      if (records.length === 0) {
+        return "No matching assessment records yet. Run /px-assess or /px-assess-module first.";
+      }
+      return JSON.stringify(
+        {
+          count: records.length,
+          logFile: assessmentLogFile(repoRoot),
+          records,
+          instruction:
+            "Group these by axis (and module if present). For each, show the question and the grader feedback, and briefly state what a strong answer covers. Point the developer at logFile for the full transcript.",
+        },
+        null,
+        2,
+      );
+    }
+
+    case "assess_module_start": {
+      const moduleArg = String(args.module ?? "").trim();
+      if (!moduleArg) return "Provide a `module` (path or name fragment).";
+      const limit = Number(args.limit ?? 40);
+      const signals = await readRepoSignals(repoRoot);
+      const packs = detectPacks(signals);
+      const allFiles = await walkRepo(repoRoot);
+      const needle = moduleArg.toLowerCase();
+      const files: { path: string; labels: string[] }[] = [];
+      for (const f of allFiles) {
+        if (!f.toLowerCase().includes(needle)) continue;
+        const labels: string[] = [];
+        for (const pack of packs) {
+          for (const h of pack.codemapHeuristics) {
+            if (h.matches(f)) labels.push(`${pack.id}:${h.label}`);
+          }
+        }
+        files.push({ path: f, labels });
+        if (files.length >= limit) break;
+      }
+      if (files.length === 0) {
+        return `No files matched "${moduleArg}". Try a different path or name fragment (e.g. a directory name).`;
+      }
+      return JSON.stringify(
+        {
+          module: moduleArg,
+          fileCount: files.length,
+          files,
+          instruction:
+            "Read a representative sample of these files, then ask the developer 2–4 questions about THIS module: (1) what it does and who uses it (axis: business), (2) how it's structured and why (axis: codebase), (3) any framework-specific patterns it relies on (axis: framework). Ask one at a time. Grade each honestly against what the code actually shows, then call assess_answer with module set to this module's name, the matching axis, the prompt you asked, a short answerSummary, the outcome, and grader notes. Do not reveal answers before the developer attempts each question.",
+        },
+        null,
+        2,
+      );
     }
 
     case "codemap_query": {

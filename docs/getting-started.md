@@ -81,15 +81,17 @@ npx pickaxis init
 4. Claude grades against the hidden rubric and your profile updates.
 5. Repeat for as many or as few axes as you like.
 
-## The five slash commands
+## The slash commands
 
-| Command                | When to use it                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------ |
-| `/px-assess`           | Take or resume the socratic assessment.                                        |
-| `/px-profile`          | See your current skill profile and module familiarity.                         |
-| `/px-prime <ticket>`   | Before starting work on a ticket — get a primer of files, anti-patterns, and pre-AI questions you should be able to answer first. |
-| `/px-challenge`        | Get a stretch exercise on your weakest axis.                                   |
-| `/px-map <query>`      | "Where in this repo does X live?" — verbosity scales to your familiarity.      |
+| Command                    | When to use it                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `/px-assess [axis]`        | Take or resume the socratic assessment, optionally scoped to a skill axis.     |
+| `/px-assess-module <area>` | Be quizzed on a specific code area — pickaxis reads the module's code and asks about what it does, how it's built, and why. |
+| `/px-review [axis\|module]`| Review what you got wrong before — past questions with the grader's feedback.  |
+| `/px-profile`              | See your current skill profile and module familiarity.                         |
+| `/px-prime <ticket>`       | Before starting a ticket — get a primer of files, anti-patterns, and pre-AI questions you should be able to answer first. |
+| `/px-challenge`            | Get a stretch exercise on your weakest axis.                                   |
+| `/px-map <query>`          | "Where in this repo does X live?" — verbosity scales to your familiarity.      |
 
 ## Where your data lives
 
@@ -97,10 +99,12 @@ npx pickaxis init
 | ----------------------------------------------------- | ------------------------------------ | ------------ |
 | `<repo>/pickaxis.yaml`                                | Team-wide config (packs, settings)   | **Yes**      |
 | `<repo>/.mcp.json`                                    | MCP server registration              | Yes (portable) |
-| `<repo>/.claude/commands/px-*.md`                     | The 5 slash commands                 | Up to you    |
+| `<repo>/.claude/commands/px-*.md`                     | The slash commands                   | Up to you    |
 | `<repo>/.claude/skills/pickaxis/SKILL.md`             | Skill — Claude's proactive behavior  | Up to you    |
 | `~/.pickaxis/<repo-fingerprint>/profile.json`         | Your personal skill profile          | **Never**    |
 | `~/.pickaxis/<repo-fingerprint>/evidence.jsonl`       | Passive observation log              | **Never**    |
+| `~/.pickaxis/<repo-fingerprint>/assessments.jsonl`    | Assessment records (machine-readable)| **Never**    |
+| `~/.pickaxis/<repo-fingerprint>/assessment-log.md`    | Assessment transcript (human-readable, open anytime) | **Never** |
 
 Pickaxis has a hard **anti-surveillance** stance: your profile is for **you**, not your manager. See the project [README](../README.md) for the rationale.
 
