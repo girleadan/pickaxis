@@ -9,6 +9,7 @@ import { readRepoSignals } from "../mcp-server/signals.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
 const SKILL_SRC = join(PACKAGE_ROOT, "skills", "pickaxis");
+const COMMANDS_SRC = join(SKILL_SRC, "commands");
 
 async function main() {
   const repoRoot = resolve(process.cwd());
@@ -26,10 +27,13 @@ async function main() {
   console.log(`  registered MCP server in .claude/settings.json (using "${mcpSpec}")`);
 
   await dropSkillBundle(repoRoot);
-  console.log("  installed skill bundle to .claude/skills/pickaxis/");
+  console.log("  installed skill to .claude/skills/pickaxis/");
+
+  const cmdCount = await dropSlashCommands(repoRoot);
+  console.log(`  installed ${cmdCount} slash commands to .claude/commands/`);
 
   console.log("");
-  console.log("Done. In Claude Code, run /px-assess to take the initial assessment.");
+  console.log("Done. Restart Claude Code, then run /px-assess to take the initial assessment.");
 }
 
 /**
@@ -164,23 +168,28 @@ async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<voi
   await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
 }
 
+// The SKILL.md drives Claude's proactive behavior — it lives under .claude/skills/.
 async function dropSkillBundle(repoRoot: string): Promise<void> {
   const dest = join(repoRoot, ".claude", "skills", "pickaxis");
-  await copyDir(SKILL_SRC, dest);
+  await fs.mkdir(dest, { recursive: true });
+  await fs.copyFile(join(SKILL_SRC, "SKILL.md"), join(dest, "SKILL.md"));
 }
 
-async function copyDir(src: string, dest: string): Promise<void> {
+// The /px-* slash commands must live in .claude/commands/ — that's the only place
+// Claude Code discovers project slash commands. A skill folder's nested commands/
+// subdir is NOT scanned, which is why /px-assess was "Unknown command".
+async function dropSlashCommands(repoRoot: string): Promise<number> {
+  const dest = join(repoRoot, ".claude", "commands");
   await fs.mkdir(dest, { recursive: true });
-  const entries = await fs.readdir(src, { withFileTypes: true });
+  const entries = await fs.readdir(COMMANDS_SRC, { withFileTypes: true });
+  let count = 0;
   for (const entry of entries) {
-    const from = join(src, entry.name);
-    const to = join(dest, entry.name);
-    if (entry.isDirectory()) {
-      await copyDir(from, to);
-    } else {
-      await fs.copyFile(from, to);
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      await fs.copyFile(join(COMMANDS_SRC, entry.name), join(dest, entry.name));
+      count++;
     }
   }
+  return count;
 }
 
 async function exists(path: string): Promise<boolean> {

@@ -33,7 +33,10 @@ What that single command does:
    - Detects your stack (looks at `composer.json`, `package.json`, `requirements.txt`, `pyproject.toml`).
    - Writes `pickaxis.yaml` at your project root (committed; shared with team).
    - Registers the MCP server in `.claude/settings.json` — and detects it was installed from a git URL, so it writes the GitHub spec into the MCP command (not the bare `pickaxis` package name). This means Claude Code can actually launch the server without pickaxis being published to npm.
-   - Drops the skill bundle at `.claude/skills/pickaxis/` — `SKILL.md` plus 5 slash commands.
+   - Installs `SKILL.md` at `.claude/skills/pickaxis/` (drives Claude's proactive behavior).
+   - Installs the 5 `/px-*` slash commands at `.claude/commands/` (that's the only directory Claude Code scans for project slash commands).
+
+> **You must restart Claude Code after `init`** so it picks up the new slash commands and MCP server. Until you restart, `/px-assess` will report "Unknown command".
 
 Pin to a specific tag or commit so a colleague doesn't get accidentally upgraded:
 
