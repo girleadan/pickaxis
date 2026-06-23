@@ -53,15 +53,32 @@ Adding a new framework = one entry in `FRAMEWORK_SIGS` (dep substring + optional
 
 Two packs ship: `polyglot` (always-on, generic) and `shopware-php` (auto-detects). They contribute curated questions, codemap heuristics, and anti-patterns via the `Pack` contract in `contract.ts`. The runtime uses each pack's `detects(signals)` — `pickaxis.yaml`'s `packs:` field is **informational only**, not consulted. Don't author a pack per stack as a default response to "we should support X" — the dynamic engine already does. Reach for a pack only when a stack deserves vetted, difficulty-laddered anchors.
 
-### Three install destinations, three Claude Code subsystems
+### Four install destinations, four Claude Code subsystems
 
-`src/init/cli.ts` writes to three places that Claude Code reads independently — getting the layout right is non-obvious:
+`src/init/cli.ts` writes to four places that Claude Code reads independently — getting the layout right is non-obvious:
 
 - **`.mcp.json`** at the project root — registers the MCP server. (`.claude/settings.json`'s `mcpServers` is silently ignored by Claude Code; do not put MCP config there.)
 - **`.claude/commands/px-*.md`** — slash commands. (A skill folder's nested `commands/` subdir is **not** scanned; commands must live here.)
 - **`.claude/skills/pickaxis/SKILL.md`** — the skill driving Claude's proactive behavior (when to call which tool unprompted).
+- **`.claude/settings.json`** `hooks.SessionStart` — invokes `npx -y <spec> --hook session-start` once per session for a deterministic touchpoint that doesn't depend on the host AI obeying SKILL.md. Merge-safe: preserves other hooks already present, replaces only the pickaxis entry.
 
-`init` also auto-detects how pickaxis was launched (npm registry vs `npx github:`) via `resolveMcpSpec()` and writes the right `npx` spec into `.mcp.json`, so a GitHub-only install works end-to-end without manual editing.
+`init` auto-detects how pickaxis was launched (npm registry vs `npx github:`) via `resolveMcpSpec()` and writes the right `npx` spec into both `.mcp.json` and the SessionStart hook, so a GitHub-only install works end-to-end without manual editing.
+
+### CLI subcommand dispatch — `src/init/cli.ts`
+
+`cli.ts` is the single entrypoint with three branches off `process.argv[2]`:
+
+- `--mcp` → boots the MCP server (`src/mcp-server/index.js`)
+- `--hook <name>` → runs a hook handler from `src/hooks/<name>.ts` (currently only `session-start`; `post-tool-use`, `user-prompt-submit`, `stop` are reserved for Rounds 2 & 3 — unwired in init, no handler to call them yet)
+- otherwise → runs `init`
+
+If you add a new hook in `src/hooks/`, wire the `--hook` branch *and* add the matching `register*Hook` writer in `cli.ts`'s init flow.
+
+### Configuration — `src/config/`
+
+`loadConfig(repoRoot)` reads `pickaxis.yaml` (defaults if missing); `saveConfig(repoRoot, patch)` round-trips through `parseDocument` so user comments and unrelated keys are preserved. The MCP server uses `loadConfig` at the top of `dispatch()` to short-circuit any tool call when `enabled: false` (except `config_get`/`config_set`). The SessionStart hook does the same check independently. **Always honor `enabled: false` — it's the load-bearing user toggle.**
+
+`nudgeShouldFire(config, seed)` is the frequency throttle for `nudge_suggest`: deterministic per seed so the host AI can't reroll. Keep the seed stable across a single call.
 
 ### Data storage tiers — privacy is a design constraint
 

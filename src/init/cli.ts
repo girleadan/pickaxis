@@ -31,6 +31,9 @@ async function main() {
   await registerMcpServer(repoRoot, mcpSpec);
   console.log(`  registered MCP server in .mcp.json (using "${mcpSpec}")`);
 
+  await registerSessionStartHook(repoRoot, mcpSpec);
+  console.log("  registered SessionStart hook in .claude/settings.json");
+
   await dropSkillBundle(repoRoot);
   console.log("  installed skill to .claude/skills/pickaxis/");
 
@@ -179,6 +182,53 @@ async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<voi
   await fs.writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
+// Claude Code SessionStart hook → runs `npx -y <spec> --hook session-start` once
+// when a session starts in this project. Handler reads pickaxis.yaml and exits
+// silently if disabled. Merge-safe: preserves any other hooks already in settings.
+async function registerSessionStartHook(repoRoot: string, mcpSpec: string): Promise<void> {
+  const settingsDir = join(repoRoot, ".claude");
+  const settingsPath = join(settingsDir, "settings.json");
+  await fs.mkdir(settingsDir, { recursive: true });
+
+  let settings: Record<string, unknown> = {};
+  if (await exists(settingsPath)) {
+    try {
+      settings = JSON.parse(await fs.readFile(settingsPath, "utf8"));
+    } catch {
+      console.warn("  .claude/settings.json exists but is not valid JSON — skipping hook merge");
+      return;
+    }
+  }
+
+  const hooks =
+    (settings.hooks as Record<string, unknown[]> | undefined) ?? {};
+  const sessionStart = (hooks.SessionStart as unknown[] | undefined) ?? [];
+
+  const desired = {
+    type: "command",
+    command: `npx -y ${mcpSpec} --hook session-start`,
+  };
+
+  // Replace any existing pickaxis SessionStart hook (matches our command prefix);
+  // leave others alone.
+  const filtered = sessionStart.filter((entry) => {
+    if (!entry || typeof entry !== "object") return true;
+    const arr = (entry as { hooks?: unknown[] }).hooks ?? [];
+    return !arr.some(
+      (h) =>
+        h &&
+        typeof h === "object" &&
+        typeof (h as { command?: string }).command === "string" &&
+        (h as { command: string }).command.includes("--hook session-start"),
+    );
+  });
+  filtered.push({ hooks: [desired] });
+  hooks.SessionStart = filtered;
+  settings.hooks = hooks;
+
+  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf8");
+}
+
 // The SKILL.md drives Claude's proactive behavior — it lives under .claude/skills/.
 async function dropSkillBundle(repoRoot: string): Promise<void> {
   const dest = join(repoRoot, ".claude", "skills", "pickaxis");
@@ -215,6 +265,15 @@ async function exists(path: string): Promise<boolean> {
 const flag = process.argv[2];
 if (flag === "--mcp") {
   await import("../mcp-server/index.js");
+} else if (flag === "--hook") {
+  const hookName = process.argv[3];
+  if (hookName === "session-start") {
+    const { runSessionStart } = await import("../hooks/sessionStart.js");
+    await runSessionStart();
+  } else {
+    // Unknown hook name — exit silently to avoid polluting Claude Code's output.
+    process.exit(0);
+  }
 } else {
   main().catch((err) => {
     console.error(err);

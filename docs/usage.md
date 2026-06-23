@@ -45,7 +45,27 @@ The score is fractional under the hood (e.g. `2.7`) so progress within a level i
 
 ---
 
-## 2. The commands
+## 2. What pickaxis is responsible for
+
+A clear separation of concerns, so it's obvious what to use when:
+
+| Responsibility | What it does | Surface |
+| --- | --- | --- |
+| **Detect** | Identify the project's stacks, languages, and modules. | Automatic at install + on every tool call. |
+| **Assess** | Quiz you on the 9 axes — curated questions + questions generated from your code. | `/px-assess`, `/px-assess-module` |
+| **Score** | Maintain levels & confidence over time; harder questions move you more. | `/px-profile` |
+| **Prime** | Before a ticket, point at the files and concepts you should know first. | `/px-prime <ticket>` |
+| **Nudge** | Mid-work learning moments: an ad-hoc question, a file to read, or a quick concept. | Automatic when enabled |
+| **Practice** | Deliberate exercises on your weakest axis. | `/px-challenge` |
+| **Review** | Revisit what you got wrong, with the grader's feedback. | `/px-review` |
+| **Map** | Navigate the repo by your own familiarity. | `/px-map <query>` |
+| **Configure** | Turn pickaxis on/off, set frequency, toggle features. | `/px-config` |
+
+Pickaxis itself doesn't "know" the codebase — it points the AI you already use at the right files at the right moment. Your skill profile is local; nothing is sent anywhere by pickaxis.
+
+---
+
+## 3. The commands
 
 All commands are typed in Claude Code (project-scoped to wherever you ran `init`).
 
@@ -58,10 +78,11 @@ All commands are typed in Claude Code (project-scoped to wherever you ran `init`
 | `/px-prime <ticket>` | Before starting a ticket: where to look, what to watch for, what to know first. |
 | `/px-challenge` | A stretch exercise on your weakest axis. |
 | `/px-map <query>` | "Where in this repo does X live?" — detail scales to your familiarity. |
+| `/px-config [arg]` | View or change pickaxis config (enable/disable, frequency, features). |
 
 ---
 
-## 3. Taking an assessment — `/px-assess`
+## 4. Taking an assessment — `/px-assess`
 
 ```
 /px-assess
@@ -88,7 +109,7 @@ Answer honestly — **partial credit is normal and expected.** The grader is tol
 
 ---
 
-## 4. Assessing a specific area — `/px-assess-module`
+## 5. Assessing a specific area — `/px-assess-module`
 
 ```
 /px-assess-module connectors_manager
@@ -105,7 +126,7 @@ This is the best way to ramp up on an unfamiliar part of a codebase: it forces y
 
 ---
 
-## 5. Reviewing past results — `/px-review`
+## 6. Reviewing past results — `/px-review`
 
 ```
 /px-review
@@ -127,7 +148,7 @@ Each entry has the date, axis/module, outcome, the question, your answer, and th
 
 ---
 
-## 6. Seeing your profile — `/px-profile`
+## 7. Seeing your profile — `/px-profile`
 
 ```
 /px-profile
@@ -165,7 +186,7 @@ Consequences worth knowing:
 
 ---
 
-## 7. The growth tools
+## 8. The growth tools
 
 ### `/px-prime <ticket>` — before you start work
 
@@ -193,7 +214,7 @@ Answers "where is X" using the loaded packs' heuristics. The **verbosity adapts 
 
 ---
 
-## 8. Where your data lives (and privacy)
+## 9. Where your data lives (and privacy)
 
 | Path | Purpose | Committed? |
 | --- | --- | --- |
@@ -212,11 +233,32 @@ The `<repo-fingerprint>` is a hash of the project's absolute path, so each proje
 
 ---
 
-## 9. Configuration — `pickaxis.yaml`
+## 10. Configuration — `/px-config` and `pickaxis.yaml`
 
-Written at the repo root by `init` (committed, shared with the team):
+Pickaxis is fully configurable from inside Claude Code via `/px-config`.
+
+```
+/px-config              # interactive: show settings, change what you want
+/px-config disable      # mute pickaxis for now (slash commands still work)
+/px-config enable       # turn it back on
+/px-config quiet        # frequency: rare — interjects ~15% of the time
+/px-config balanced     # frequency: balanced — interjects ~50% of the time
+/px-config intensive    # frequency: intensive — interjects whenever salient
+```
+
+When pickaxis is **disabled**, slash commands still work but every MCP tool short-circuits with a "currently disabled" message and no proactive nudges fire. Use this when you want quiet for a session.
+
+The settings are persisted in `pickaxis.yaml` at the repo root (committed, shared with the team):
 
 ```yaml
+enabled: true
+features:
+  nudges: true       # mid-work ad-hoc questions / "read this file"
+  challenges: true   # proactive offers of challenge exercises
+  ticketLoop: true   # reserved (Round 2: per-ticket reflect)
+  sessionDigest: true # reserved (Round 3: session digests)
+frequency: balanced  # rare | balanced | intensive
+
 packs:
   - polyglot
 detectedStacks:
@@ -233,6 +275,12 @@ tools: {}
 
 | Key | Meaning |
 | --- | --- |
+| `enabled` | Global on/off. When false, MCP tools short-circuit and no nudges fire. |
+| `features.nudges` | Mid-work ad-hoc questions / file-read suggestions (`nudge_suggest`). |
+| `features.challenges` | Proactive offers of `/px-challenge`-style exercises. |
+| `features.ticketLoop` | Per-ticket loop (Round 2 feature — currently a no-op). |
+| `features.sessionDigest` | End-of-session digest (Round 3 feature — currently a no-op). |
+| `frequency` | How often nudges fire: `rare` ≈ 15%, `balanced` ≈ 50%, `intensive` always. |
 | `packs` | Informational list of packs (runtime auto-detects which packs apply). |
 | `detectedStacks` | What stack detection found at install time — informational. |
 | `assess.reassessAfterDays` | When a score is considered stale (not yet enforced). |
@@ -253,7 +301,7 @@ To add curated questions for a stack you care about, see **[pack-authoring.md](p
 
 ---
 
-## 10. A suggested workflow
+## 11. A suggested workflow
 
 1. **First week on a project:** run `/px-assess` a handful of times to map your baseline, and `/px-assess-module <area>` on the parts you'll touch.
 2. **Starting a ticket:** `/px-prime "<ticket>"` before prompting the AI; `/px-map` when you're hunting for where something lives.
@@ -263,7 +311,7 @@ To add curated questions for a stack you care about, see **[pack-authoring.md](p
 
 ---
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 **`/px-*` says "Unknown command".** Restart Claude Code — slash commands load at startup. Confirm `.claude/commands/px-*.md` exist.
 

@@ -25,6 +25,8 @@ import { BUILTIN_PACKS, detectPacks, getPack } from "../packs/index.js";
 import { readRepoSignals } from "./signals.js";
 import { walkRepo } from "../codemap/indexer.js";
 import { probeFilesForAxis } from "../assessment/axisProbes.js";
+import { loadConfig, saveConfig, nudgeShouldFire, ConfigPatch } from "../config/loader.js";
+import { summarizeConfig } from "../config/model.js";
 
 /**
  * Resolve the project root. Priority:
@@ -220,6 +222,51 @@ const tools = [
       },
     },
   },
+  {
+    name: "config_get",
+    description:
+      "Return the current pickaxis configuration (enabled, features, frequency) plus a one-line human summary. Call this once per session to know whether to act proactively.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "config_set",
+    description:
+      "Update pickaxis configuration. Merges the provided patch into pickaxis.yaml, preserving comments and unrelated keys. Use this from /px-config when the developer asks to enable/disable, change frequency, or toggle a feature.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        enabled: { type: "boolean" },
+        frequency: { type: "string", enum: ["rare", "balanced", "intensive"] },
+        features: {
+          type: "object",
+          properties: {
+            nudges: { type: "boolean" },
+            challenges: { type: "boolean" },
+            ticketLoop: { type: "boolean" },
+            sessionDigest: { type: "boolean" },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: "nudge_suggest",
+    description:
+      "Ask pickaxis whether to deliver a small mid-work learning interjection right now, and what it should be (a short question, a file to read, or a brief concept). Honors config.enabled, config.features.nudges, and frequency throttling — returns a skipped marker when it decides not to fire. Call this after a substantive Edit/Write the developer authored, after they finish a stuck question, or when a meaningful topic comes up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        context: {
+          type: "object",
+          description: "Optional context to ground the nudge.",
+          properties: {
+            recentFiles: { type: "array", items: { type: "string" } },
+            recentTopic: { type: "string" },
+          },
+        },
+      },
+    },
+  },
 ];
 
 const server = new Server(
@@ -247,7 +294,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
   }
 });
 
+// Tools that always work, even when pickaxis is disabled — so the dev can
+// re-enable it. Everything else short-circuits with a disabled message.
+const ALWAYS_AVAILABLE = new Set(["config_get", "config_set"]);
+
 async function dispatch(name: string, args: Record<string, unknown>): Promise<string> {
+  if (!ALWAYS_AVAILABLE.has(name)) {
+    const config = await loadConfig(repoRoot);
+    if (!config.enabled) {
+      return "pickaxis is currently disabled. Run `/px-config enable` to turn it back on.";
+    }
+  }
   switch (name) {
     case "profile_get": {
       const signals = await readRepoSignals(repoRoot);
@@ -520,6 +577,76 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
 
     case "tool_invoke": {
       return `tool_invoke is a stub in 0.1.0. Target was: ${String(args.target)}. Add the target to pickaxis.yaml under 'tools:' and wire it in a future release.`;
+    }
+
+    case "config_get": {
+      const config = await loadConfig(repoRoot);
+      return JSON.stringify({ config, summary: summarizeConfig(config) }, null, 2);
+    }
+
+    case "config_set": {
+      const patch: ConfigPatch = {};
+      if (typeof args.enabled === "boolean") patch.enabled = args.enabled;
+      if (typeof args.frequency === "string") {
+        patch.frequency = args.frequency as ConfigPatch["frequency"];
+      }
+      if (args.features && typeof args.features === "object") {
+        patch.features = args.features as ConfigPatch["features"];
+      }
+      const config = await saveConfig(repoRoot, patch);
+      return JSON.stringify({ config, summary: summarizeConfig(config) }, null, 2);
+    }
+
+    case "nudge_suggest": {
+      const config = await loadConfig(repoRoot);
+      const ctx = (args.context as { recentFiles?: string[]; recentTopic?: string } | undefined) ?? {};
+      const recentFiles = ctx.recentFiles ?? [];
+
+      // Build a stable seed so the host AI can't reroll for a different outcome.
+      const seed = JSON.stringify({ recentFiles, topic: ctx.recentTopic ?? "" });
+      if (!nudgeShouldFire(config, seed)) {
+        return JSON.stringify({ skipped: true, reason: !config.features.nudges ? "nudges feature disabled" : "frequency throttle" });
+      }
+
+      const signals = await readRepoSignals(repoRoot);
+      const packs = detectPacks(signals);
+      const profile = await loadOrInitProfile(repoRoot, packs.map((p) => p.id));
+      const axis = weakestAxis(profile.axes);
+
+      // Prefer grounding in a file the dev just touched if it matches the
+      // axis's probe; otherwise fall back to a probe pick.
+      const probe = probeFilesForAxis(axis, recentFiles.length ? recentFiles : await walkRepo(repoRoot), signals);
+      const targetFile = probe.files[0];
+
+      // Three rotating kinds, biased by what we actually have to ground on.
+      // Use the seed hex byte to pick deterministically per call.
+      const pickByte = parseInt(seed.length.toString(16).slice(-1), 16) % 3;
+      let kind: "question" | "read_file" | "concept";
+      if (targetFile && pickByte === 0) kind = "read_file";
+      else if (pickByte === 1) kind = "concept";
+      else kind = "question";
+
+      let payload: Record<string, unknown>;
+      let instruction: string;
+      if (kind === "read_file" && targetFile) {
+        payload = { axis, path: targetFile, why: probe.focus };
+        instruction = `Tell the developer: "Quick learning moment — spend ~60 seconds in \`${targetFile}\` before continuing. Then I'll ask you one question about it." After they've read, ask one short question grounded in the file (estimate difficulty 2), grade honestly, and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+      } else if (kind === "concept") {
+        payload = { axis, topic: probe.focus.split(".")[0] };
+        instruction = `Surface ONE small concept relevant to the "${axis}" axis (drawn from this project's context per the focus: "${probe.focus}"). Explain it in 2 short sentences, then ask one quick check question (difficulty 2). Grade honestly and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+      } else {
+        payload = { axis, focus: probe.focus, files: probe.files.slice(0, 3) };
+        instruction = `Ask the developer one short question (difficulty 2) about "${axis}" grounded in the listed files. Don't reveal the answer first. Grade and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+      }
+
+      await appendEvidence(repoRoot, {
+        at: new Date().toISOString(),
+        kind: "ai_prompt",
+        axis,
+        detail: `nudge:${kind}`,
+      });
+
+      return JSON.stringify({ kind, ...payload, instruction }, null, 2);
     }
 
     default:

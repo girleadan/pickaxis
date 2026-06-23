@@ -46,6 +46,7 @@ Then in Claude Code, run `/px-assess` to take the initial 5–10 minute assessme
 | `/px-prime <ticket>` | Before a ticket: where to look, what to watch for, what to know first. |
 | `/px-challenge` | A stretch exercise targeting your weakest axis. |
 | `/px-map <query>` | "Where in this repo does X live?" — detail scales to your familiarity. |
+| `/px-config [enable\|disable\|quiet\|intensive]` | Turn pickaxis on/off, change how often it interjects, toggle features. |
 
 See **[docs/usage.md](docs/usage.md)** for what each command does in depth, how scoring works, and a suggested workflow.
 
