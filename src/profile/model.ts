@@ -94,6 +94,7 @@ export const EvidenceEvent = z.object({
     "commit",
     "assessment_answer",
     "challenge_completed",
+    "nudge_delivered",
   ]),
   axis: z.enum(SKILL_AXES).optional(),
   modulePath: z.string().optional(),

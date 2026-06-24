@@ -5,8 +5,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { SKILL_AXES } from "../profile/model.js";
 import {
   appendAssessmentRecord,
@@ -27,27 +26,8 @@ import { walkRepo } from "../codemap/indexer.js";
 import { probeFilesForAxis } from "../assessment/axisProbes.js";
 import { loadConfig, saveConfig, nudgeShouldFire, ConfigPatch } from "../config/loader.js";
 import { summarizeConfig } from "../config/model.js";
-
-/**
- * Resolve the project root. Priority:
- *   1. PICKAXIS_REPO_ROOT env var (explicit override).
- *   2. Walk up from cwd to the nearest directory containing pickaxis.yaml.
- *      Claude Code launches project MCP servers with cwd at the project root,
- *      so this normally matches on the first iteration. This keeps .mcp.json
- *      portable — no machine-specific absolute path baked in.
- *   3. Fall back to cwd.
- */
-function resolveRepoRoot(): string {
-  if (process.env.PICKAXIS_REPO_ROOT) return resolve(process.env.PICKAXIS_REPO_ROOT);
-  let dir = resolve(process.cwd());
-  for (let i = 0; i < 25; i++) {
-    if (existsSync(join(dir, "pickaxis.yaml"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return resolve(process.cwd());
-}
+import { resolveRepoRoot } from "../util/repoRoot.js";
+import { weakestAxis } from "../util/axes.js";
 
 const repoRoot = resolveRepoRoot();
 
@@ -613,35 +593,41 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
       const profile = await loadOrInitProfile(repoRoot, packs.map((p) => p.id));
       const axis = weakestAxis(profile.axes);
 
+      // Difficulty matches the dev's current level on this axis, leaning one above
+      // (you only progress by attempting things slightly past you). Clamp to 1–4.
+      const axisScore = profile.axes[axis]?.level ?? 0;
+      const recommendedDifficulty = Math.max(1, Math.min(4, displayLevel(axisScore) + 1));
+
       // Prefer grounding in a file the dev just touched if it matches the
       // axis's probe; otherwise fall back to a probe pick.
       const probe = probeFilesForAxis(axis, recentFiles.length ? recentFiles : await walkRepo(repoRoot), signals);
       const targetFile = probe.files[0];
 
-      // Three rotating kinds, biased by what we actually have to ground on.
-      // Use the seed hex byte to pick deterministically per call.
-      const pickByte = parseInt(seed.length.toString(16).slice(-1), 16) % 3;
+      // Pick the kind deterministically from a hash byte of the seed — same seed
+      // always yields the same kind so the host AI can't reroll.
+      const kindByte = parseInt(createHash("sha256").update(seed + ":kind").digest("hex").slice(0, 2), 16);
+      const kindIdx = kindByte % 3;
       let kind: "question" | "read_file" | "concept";
-      if (targetFile && pickByte === 0) kind = "read_file";
-      else if (pickByte === 1) kind = "concept";
+      if (targetFile && kindIdx === 0) kind = "read_file";
+      else if (kindIdx === 1) kind = "concept";
       else kind = "question";
 
       let payload: Record<string, unknown>;
       let instruction: string;
       if (kind === "read_file" && targetFile) {
-        payload = { axis, path: targetFile, why: probe.focus };
-        instruction = `Tell the developer: "Quick learning moment — spend ~60 seconds in \`${targetFile}\` before continuing. Then I'll ask you one question about it." After they've read, ask one short question grounded in the file (estimate difficulty 2), grade honestly, and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+        payload = { axis, path: targetFile, why: probe.focus, difficulty: recommendedDifficulty };
+        instruction = `Tell the developer: "Quick learning moment — spend ~60 seconds in \`${targetFile}\` before continuing. Then I'll ask you one question about it." After they've read, ask one short question grounded in the file. Grade honestly and record via assess_answer with axis="${axis}", prompt=<your question>, difficulty=${recommendedDifficulty}, no questionId.`;
       } else if (kind === "concept") {
-        payload = { axis, topic: probe.focus.split(".")[0] };
-        instruction = `Surface ONE small concept relevant to the "${axis}" axis (drawn from this project's context per the focus: "${probe.focus}"). Explain it in 2 short sentences, then ask one quick check question (difficulty 2). Grade honestly and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+        payload = { axis, topic: probe.focus, difficulty: recommendedDifficulty };
+        instruction = `Surface ONE small concept relevant to the "${axis}" axis (drawn from this project's context per the focus). Explain it in 2 short sentences, then ask one quick check question. Grade honestly and record via assess_answer with axis="${axis}", prompt=<your question>, difficulty=${recommendedDifficulty}, no questionId.`;
       } else {
-        payload = { axis, focus: probe.focus, files: probe.files.slice(0, 3) };
-        instruction = `Ask the developer one short question (difficulty 2) about "${axis}" grounded in the listed files. Don't reveal the answer first. Grade and record via assess_answer with axis="${axis}", prompt=<your question>, no questionId.`;
+        payload = { axis, focus: probe.focus, files: probe.files.slice(0, 3), difficulty: recommendedDifficulty };
+        instruction = `Ask the developer one short question about "${axis}" grounded in the listed files. Don't reveal the answer first. Grade and record via assess_answer with axis="${axis}", prompt=<your question>, difficulty=${recommendedDifficulty}, no questionId.`;
       }
 
       await appendEvidence(repoRoot, {
         at: new Date().toISOString(),
-        kind: "ai_prompt",
+        kind: "nudge_delivered",
         axis,
         detail: `nudge:${kind}`,
       });
@@ -652,22 +638,6 @@ async function dispatch(name: string, args: Record<string, unknown>): Promise<st
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
-}
-
-function weakestAxis(
-  axes: Record<string, { level: number; confidence: number }>,
-): (typeof SKILL_AXES)[number] {
-  let weak: (typeof SKILL_AXES)[number] = SKILL_AXES[0];
-  let weakScore = Infinity;
-  for (const axis of SKILL_AXES) {
-    const s = axes[axis];
-    const score = s ? s.level + s.confidence : 0;
-    if (score < weakScore) {
-      weakScore = score;
-      weak = axis;
-    }
-  }
-  return weak;
 }
 
 function findQuestion(id: string) {

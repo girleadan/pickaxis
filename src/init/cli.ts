@@ -25,7 +25,6 @@ async function main() {
   console.log(`  detected packs: ${packs.map((p) => p.id).join(", ") || "(none)"}`);
 
   await writeConfig(repoRoot, packs.map((p) => p.id), stacks);
-  console.log("  wrote pickaxis.yaml");
 
   const mcpSpec = await resolveMcpSpec();
   await registerMcpServer(repoRoot, mcpSpec);
@@ -131,27 +130,65 @@ async function writeConfig(
   stacks: DetectedStack[],
 ): Promise<void> {
   const configPath = join(repoRoot, "pickaxis.yaml");
-  if (await exists(configPath)) {
-    console.log("  pickaxis.yaml already exists — leaving it alone");
+  const stacksList = stacks.map((s) => (s.root === "." ? s.id : `${s.id}@${s.root}`));
+
+  // Fresh write — no existing file. Use yamlStringify for a clean layout + comment.
+  if (!(await exists(configPath))) {
+    const config = {
+      enabled: true,
+      features: {
+        nudges: true,
+        challenges: true,
+        ticketLoop: true,
+        sessionDigest: true,
+      },
+      frequency: "balanced",
+      packs: packIds,
+      detectedStacks: stacksList,
+      assess: { reassessAfterDays: 30 },
+      privacy: { sendPromptsToHostAi: true, logFileTouches: true },
+      tools: {},
+    };
+    await fs.writeFile(
+      configPath,
+      `# pickaxis configuration\n# Profile data lives in ~/.pickaxis/ and is NEVER committed.\n# This file IS committed — it shapes the assessment for the whole team.\n\n${yamlStringify(config)}`,
+      "utf8",
+    );
     return;
   }
-  const config = {
-    packs: packIds,
-    detectedStacks: stacks.map((s) => (s.root === "." ? s.id : `${s.id}@${s.root}`)),
-    assess: {
-      reassessAfterDays: 30,
-    },
-    privacy: {
-      sendPromptsToHostAi: true,
-      logFileTouches: true,
-    },
-    tools: {},
+
+  // Non-destructive merge: add missing top-level keys but never overwrite any
+  // value the user already set. Preserves comments via parseDocument.
+  const { parseDocument } = await import("yaml");
+  const raw = await fs.readFile(configPath, "utf8");
+  const doc = parseDocument(raw);
+  let added = 0;
+  const setIfMissing = (key: string, value: unknown) => {
+    if (doc.get(key) === undefined) {
+      doc.set(key, value);
+      added++;
+    }
   };
-  await fs.writeFile(
-    configPath,
-    `# pickaxis configuration\n# Profile data lives in ~/.pickaxis/ and is NEVER committed.\n# This file IS committed — it shapes the assessment for the whole team.\n\n${yamlStringify(config)}`,
-    "utf8",
-  );
+  setIfMissing("enabled", true);
+  setIfMissing("features", {
+    nudges: true,
+    challenges: true,
+    ticketLoop: true,
+    sessionDigest: true,
+  });
+  setIfMissing("frequency", "balanced");
+  setIfMissing("packs", packIds);
+  setIfMissing("detectedStacks", stacksList);
+  setIfMissing("assess", { reassessAfterDays: 30 });
+  setIfMissing("privacy", { sendPromptsToHostAi: true, logFileTouches: true });
+  setIfMissing("tools", {});
+
+  if (added === 0) {
+    console.log("  pickaxis.yaml already complete — left alone");
+  } else {
+    await fs.writeFile(configPath, doc.toString({ lineWidth: 0 }), "utf8");
+    console.log(`  pickaxis.yaml merged (added ${added} missing key${added === 1 ? "" : "s"})`);
+  }
 }
 
 // MCP servers are configured in .mcp.json at the project root — the documented,

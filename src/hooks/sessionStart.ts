@@ -1,40 +1,8 @@
-import { resolve } from "node:path";
-import { existsSync } from "node:fs";
-import { join, dirname } from "node:path";
 import { loadConfig } from "../config/loader.js";
 import { loadOrInitProfile } from "../profile/store.js";
-import { displayLevel, SKILL_AXES } from "../profile/model.js";
-
-// Same logic as the MCP server's resolveRepoRoot — find the nearest pickaxis.yaml
-// walking up from cwd. The SessionStart hook runs at Claude Code startup with
-// cwd = project root, but be robust.
-function resolveRepoRoot(): string {
-  if (process.env.PICKAXIS_REPO_ROOT) return resolve(process.env.PICKAXIS_REPO_ROOT);
-  let dir = resolve(process.cwd());
-  for (let i = 0; i < 25; i++) {
-    if (existsSync(join(dir, "pickaxis.yaml"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return resolve(process.cwd());
-}
-
-function weakestAxis(
-  axes: Record<string, { level: number; confidence: number } | undefined>,
-): (typeof SKILL_AXES)[number] {
-  let weak: (typeof SKILL_AXES)[number] = SKILL_AXES[0];
-  let weakScore = Infinity;
-  for (const axis of SKILL_AXES) {
-    const s = axes[axis];
-    const score = s ? s.level + s.confidence : 0;
-    if (score < weakScore) {
-      weakScore = score;
-      weak = axis;
-    }
-  }
-  return weak;
-}
+import { displayLevel } from "../profile/model.js";
+import { resolveRepoRoot } from "../util/repoRoot.js";
+import { weakestAxis } from "../util/axes.js";
 
 export async function runSessionStart(): Promise<void> {
   const repoRoot = resolveRepoRoot();
