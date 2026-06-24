@@ -33,7 +33,7 @@ npx github:girleadan/pickaxis#main init
 
 Then in Claude Code, run `/px-assess` to take the initial 5–10 minute assessment.
 
-**New here?** Read the **[full usage guide](docs/usage.md)**. For installation details (local clone, npm-link dev setup, troubleshooting) see **[getting-started.md](docs/getting-started.md)**.
+**New here?** Read the **[full usage guide](docs/usage.md)**. For installation details (local clone, npm-link dev setup, troubleshooting) see **[getting-started.md](docs/getting-started.md)**. For the project's design history, decisions, and queued work, see **[docs/journal.md](docs/journal.md)**.
 
 ## Slash commands (in Claude Code)
 

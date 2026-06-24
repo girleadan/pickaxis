@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **For the long memory** — the *why* behind every shipped feature, the load-bearing design decisions, explicit non-goals, the responsibility model, and locked specs for queued work (notably Round 2's language lesson) — read **[`docs/journal.md`](docs/journal.md)**. CLAUDE.md captures architecture invariants; `journal.md` captures decision history. Consult both when planning non-trivial changes.
+
 ## Commands
 
 ```bash
@@ -97,4 +99,6 @@ Public repo at `github.com/girleadan/pickaxis`, MIT-licensed. Not yet on npm. In
 
 ## Reading guide for the docs
 
-`README.md` (motivation/privacy) → `docs/getting-started.md` (install) → `docs/usage.md` (daily use, every command in depth, scoring model) → `docs/pack-authoring.md` (extending). Update `docs/usage.md` whenever a command's behavior or response shape changes; the `/px-assess` command file at `skills/pickaxis/commands/px-assess.md` must stay in sync with `assess_start`'s response shape.
+`README.md` (motivation/privacy) → `docs/getting-started.md` (install) → `docs/usage.md` (daily use, every command in depth, scoring model) → `docs/pack-authoring.md` (extending) → **`docs/journal.md`** (the *why* — design history, locked decisions, non-goals, the Round 2 language-lesson spec).
+
+Update `docs/usage.md` whenever a command's behavior or response shape changes; the `/px-assess` command file at `skills/pickaxis/commands/px-assess.md` must stay in sync with `assess_start`'s response shape. Update `docs/journal.md` whenever you ship a feature — add a row to §4 with the commit hash and *why*, and flip the responsibility row in §5 if relevant.
