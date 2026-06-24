@@ -4,6 +4,13 @@ import { displayLevel } from "../profile/model.js";
 import { resolveRepoRoot } from "../util/repoRoot.js";
 import { weakestAxis } from "../util/axes.js";
 
+// Emit a Claude Code hook response. `systemMessage` is shown to the user as a
+// visible notice at session start; plain stdout is only folded into the model's
+// context (the user never sees it), which is not what we want for the greeting.
+function emit(systemMessage: string): void {
+  process.stdout.write(JSON.stringify({ systemMessage }) + "\n");
+}
+
 export async function runSessionStart(): Promise<void> {
   const repoRoot = resolveRepoRoot();
   const config = await loadConfig(repoRoot);
@@ -16,8 +23,8 @@ export async function runSessionStart(): Promise<void> {
     (s) => s && (s.level > 0 || s.confidence > 0),
   );
   if (!hasSignal) {
-    process.stdout.write(
-      "🪨 pickaxis: no profile yet for this project — try `/px-assess` for a quick warm-up, or `/px-config` to tune what fires.\n",
+    emit(
+      "🪨 pickaxis: no profile yet for this project — try `/px-assess` for a quick warm-up, or `/px-config` to tune what fires.",
     );
     return;
   }
@@ -26,7 +33,7 @@ export async function runSessionStart(): Promise<void> {
   const score = profile.axes[axis];
   const level = score ? displayLevel(score.level) : 0;
   const scoreVal = score ? score.level.toFixed(1) : "0.0";
-  process.stdout.write(
-    `🪨 pickaxis: weakest axis is \`${axis}\` (L${level}, score ${scoreVal}). Try \`/px-assess ${axis}\`, \`/px-challenge\`, or \`/px-config\` to tune.\n`,
+  emit(
+    `🪨 pickaxis: weakest axis is \`${axis}\` (L${level}, score ${scoreVal}). Try \`/px-assess ${axis}\`, \`/px-challenge\`, or \`/px-config\` to tune.`,
   );
 }
