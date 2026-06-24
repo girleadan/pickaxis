@@ -31,7 +31,7 @@ async function main() {
   console.log(`  registered MCP server in .mcp.json (using "${mcpSpec}")`);
 
   await registerSessionStartHook(repoRoot, mcpSpec);
-  console.log("  registered SessionStart hook in .claude/settings.json");
+  console.log("  registered SessionStart hook in .claude/settings.local.json");
 
   await dropSkillBundle(repoRoot);
   console.log("  installed skill to .claude/skills/pickaxis/");
@@ -221,10 +221,17 @@ async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<voi
 
 // Claude Code SessionStart hook → runs `npx -y <spec> --hook session-start` once
 // when a session starts in this project. Handler reads pickaxis.yaml and exits
-// silently if disabled. Merge-safe: preserves any other hooks already in settings.
+// silently if disabled.
+//
+// Written to .claude/settings.local.json (per-user, gitignored by Claude Code)
+// rather than settings.json (committed, team-shared, requires per-user approval).
+// The SessionStart greeting is intrinsically personal (shows the dev's own
+// weakest axis from their private profile), so local-only is the semantically
+// correct location and avoids Claude Code 2.x's hook-approval gate.
+// Merge-safe: preserves any other hooks already in the file.
 async function registerSessionStartHook(repoRoot: string, mcpSpec: string): Promise<void> {
   const settingsDir = join(repoRoot, ".claude");
-  const settingsPath = join(settingsDir, "settings.json");
+  const settingsPath = join(settingsDir, "settings.local.json");
   await fs.mkdir(settingsDir, { recursive: true });
 
   let settings: Record<string, unknown> = {};
@@ -232,7 +239,7 @@ async function registerSessionStartHook(repoRoot: string, mcpSpec: string): Prom
     try {
       settings = JSON.parse(await fs.readFile(settingsPath, "utf8"));
     } catch {
-      console.warn("  .claude/settings.json exists but is not valid JSON — skipping hook merge");
+      console.warn("  .claude/settings.local.json exists but is not valid JSON — skipping hook merge");
       return;
     }
   }

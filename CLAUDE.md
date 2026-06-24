@@ -62,7 +62,7 @@ Two packs ship: `polyglot` (always-on, generic) and `shopware-php` (auto-detects
 - **`.mcp.json`** at the project root — registers the MCP server. (`.claude/settings.json`'s `mcpServers` is silently ignored by Claude Code; do not put MCP config there.)
 - **`.claude/commands/px-*.md`** — slash commands. (A skill folder's nested `commands/` subdir is **not** scanned; commands must live here.)
 - **`.claude/skills/pickaxis/SKILL.md`** — the skill driving Claude's proactive behavior (when to call which tool unprompted).
-- **`.claude/settings.json`** `hooks.SessionStart` — invokes `npx -y <spec> --hook session-start` once per session for a deterministic touchpoint that doesn't depend on the host AI obeying SKILL.md. Merge-safe: preserves other hooks already present, replaces only the pickaxis entry.
+- **`.claude/settings.local.json`** `hooks.SessionStart` — invokes `npx -y <spec> --hook session-start` once per session for a deterministic touchpoint that doesn't depend on the host AI obeying SKILL.md. Written to the local (per-user) file rather than `settings.json` because Claude Code 2.x requires user approval for hooks committed in `settings.json`, and the SessionStart greeting is intrinsically personal anyway (it shows the dev's own weakest axis from their private profile). Merge-safe: preserves other hooks already present, replaces only the pickaxis entry.
 
 `init` auto-detects how pickaxis was launched (npm registry vs `npx github:`) via `resolveMcpSpec()` and writes the right `npx` spec into both `.mcp.json` and the SessionStart hook, so a GitHub-only install works end-to-end without manual editing.
 

@@ -74,7 +74,7 @@ Future Claude Code sessions should keep this layout straight:
 | `.mcp.json` at project root | Registers MCP servers (the canonical place) | An `mcpServers` block inside `.claude/settings.json` is **silently ignored** — do not put MCP config there. |
 | `.claude/commands/px-*.md` | Slash commands | A skill folder's nested `commands/` subdir is **not** scanned. Slash commands must live in `.claude/commands/`. |
 | `.claude/skills/pickaxis/SKILL.md` | Proactive behavior the AI follows | This is soft guidance the AI may follow inconsistently — for deterministic behavior use a Claude Code hook. |
-| `.claude/settings.json` `hooks.*` | Claude Code hooks (deterministic shell-callouts) | Merge-safe write — preserve other hooks already present. |
+| `.claude/settings.local.json` `hooks.*` | Claude Code hooks (deterministic shell-callouts). Local rather than committed because Claude Code 2.x gates hooks in `settings.json` behind a per-user approval, and the SessionStart greeting is intrinsically personal. | Merge-safe write — preserve other hooks already present. |
 
 ---
 
