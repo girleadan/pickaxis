@@ -238,13 +238,15 @@ The `<repo-fingerprint>` is a hash of the project's absolute path, so each proje
 Pickaxis is fully configurable from inside Claude Code via `/px-config`.
 
 ```
-/px-config              # interactive: show settings, change what you want
+/px-config              # interactive: shows current settings, then a clickable picker
 /px-config disable      # mute pickaxis for now (slash commands still work)
 /px-config enable       # turn it back on
 /px-config quiet        # frequency: rare — interjects ~15% of the time
 /px-config balanced     # frequency: balanced — interjects ~50% of the time
 /px-config intensive    # frequency: intensive — interjects whenever salient
 ```
+
+With no argument, `/px-config` prints your current state and then opens a **clickable picker** (via Claude Code's `AskUserQuestion` tool) — choose to turn pickaxis on/off, change frequency, or multi-select which features are on. Shortcut arguments above skip the picker for instant toggles.
 
 When pickaxis is **disabled**, slash commands still work but every MCP tool short-circuits with a "currently disabled" message and no proactive nudges fire. Use this when you want quiet for a session.
 
