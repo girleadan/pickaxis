@@ -219,15 +219,21 @@ async function registerMcpServer(repoRoot: string, mcpSpec: string): Promise<voi
   await fs.writeFile(mcpPath, JSON.stringify(config, null, 2) + "\n", "utf8");
 }
 
-// Claude Code SessionStart hook → runs `npx -y <spec> --hook session-start` once
-// when a session starts in this project. Handler reads pickaxis.yaml and exits
-// silently if disabled.
+// Claude Code SessionStart hook → runs `--hook session-start` once when a
+// session starts in this project. Handler reads pickaxis.yaml and exits silently
+// if disabled.
 //
 // Written to .claude/settings.local.json (per-user, gitignored by Claude Code)
 // rather than settings.json (committed, team-shared, requires per-user approval).
-// The SessionStart greeting is intrinsically personal (shows the dev's own
-// weakest axis from their private profile), so local-only is the semantically
-// correct location and avoids Claude Code 2.x's hook-approval gate.
+// The SessionStart greeting is intrinsically personal anyway (shows the dev's
+// own weakest axis from their private profile), so local-only is the
+// semantically correct location and avoids Claude Code 2.x's hook-approval gate.
+//
+// Command form: prefer the absolute path to the local cli.js when init was run
+// from a stable on-disk install. Falls back to `npx -y <spec>` only when this
+// package itself was launched from an npx cache (i.e. the colleague workflow).
+// This avoids the npx cache race where the hook + the MCP server compete for
+// the same cache slot on Claude Code launch (manifests as `ENOTEMPTY`).
 // Merge-safe: preserves any other hooks already in the file.
 async function registerSessionStartHook(repoRoot: string, mcpSpec: string): Promise<void> {
   const settingsDir = join(repoRoot, ".claude");
@@ -248,9 +254,18 @@ async function registerSessionStartHook(repoRoot: string, mcpSpec: string): Prom
     (settings.hooks as Record<string, unknown[]> | undefined) ?? {};
   const sessionStart = (hooks.SessionStart as unknown[] | undefined) ?? [];
 
+  // PACKAGE_ROOT is `<install-root>` (i.e. dist/../.. when this CLI runs).
+  // If the install root is under an npx cache, the cli.js is transient and we
+  // must use the `npx -y <spec>` form so future invocations can refetch it.
+  // Otherwise use the absolute local path — fastest, no cache race.
+  const cliPath = join(PACKAGE_ROOT, "dist", "init", "cli.js");
+  const isNpxCache = PACKAGE_ROOT.includes("/_npx/");
+  const commandStr = isNpxCache
+    ? `npx -y ${mcpSpec} --hook session-start`
+    : `node ${cliPath} --hook session-start`;
   const desired = {
     type: "command",
-    command: `npx -y ${mcpSpec} --hook session-start`,
+    command: commandStr,
   };
 
   // Replace any existing pickaxis SessionStart hook (matches our command prefix);
